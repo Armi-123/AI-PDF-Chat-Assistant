@@ -230,7 +230,7 @@ def chatbot(message, history, pdf_file):
     # NOT FOUND IN PDF
     # FALLBACK TO GEMINI
     # -----------------------------
-    if len(relevant_text.strip()):
+    if not relevant_text.strip():
         return "Information not found in uploaded PDF."
 
     # -----------------------------
@@ -428,89 +428,117 @@ def extract_pdf_text(pdf_file):
     
 def find_relevant_text(pdf_text, question):
 
-    # Split PDF into paragraphs instead of lines
-    paragraphs = [
-        p.strip()
-        for p in re.split(r"\n\s*\n", pdf_text)
-        if p.strip()
+    # -----------------------------
+    # Split PDF into lines
+    # -----------------------------
+    lines = [
+        line.strip()
+        for line in pdf_text.splitlines()
+        if line.strip()
     ]
 
-    # Convert question to lowercase
+    # -----------------------------
+    # Create chunks of 20 lines
+    # -----------------------------
+    chunks = []
+
+    chunk_size = 20
+
+    for i in range(0, len(lines), chunk_size):
+
+        chunk = "\n".join(
+            lines[i:i + chunk_size]
+        )
+
+        chunks.append(chunk)
+
+    # -----------------------------
+    # Normalize question
+    # -----------------------------
     question = question.lower()
 
-    # Common keyword replacements
-    question = (
-        question
-        .replace("ai", "artificial intelligence")
-        .replace("ml", "machine learning")
-        .replace("db", "database")
-    )
+    replacements = {
+        "ai": "artificial intelligence",
+        "ml": "machine learning",
+        "db": "database",
+        "powerbi": "power bi"
+    }
 
-    # Ignore common words
+    for old, new in replacements.items():
+        question = question.replace(old, new)
+
+    # -----------------------------
+    # Stop words
+    # -----------------------------
     stop_words = {
         "what","is","the","a","an","of",
         "how","many","who","where","when",
         "does","do","are","in","on","for",
-        "tell","me","pdf","share","uploaded",
-        "please","can","could","would","give",
-        "define","describe","about","from",
-        "their","there","this","that",
-        "explain","difference","between"
+        "tell","me","pdf","uploaded",
+        "please","can","could","would",
+        "give","define","describe",
+        "about","from","their","there",
+        "this","that","explain",
+        "difference","between"
     }
 
-    # Extract important words from question
     question_words = {
         word
         for word in re.findall(r"\w+", question)
         if word not in stop_words
     }
 
+    # -----------------------------
+    # Score every chunk
+    # -----------------------------
     scored = []
 
-    # Search every paragraph
-    for paragraph in paragraphs:
+    for chunk in chunks:
 
-        paragraph_words = set(
-            re.findall(r"\w+", paragraph.lower())
-        )
+        text = chunk.lower()
 
-        score = len(
-            question_words.intersection(paragraph_words)
-        )
+        score = 0
 
-        minimum_score = max(
-            1,
-            len(question_words) // 2
-        )
+        for word in question_words:
 
-        if score >= minimum_score:
+            if word in text:
+                score += 2
 
-            scored.append(
-                (score, paragraph.strip())
-            )
+        if question in text:
+            score += 10
 
+        if score > 0:
+            scored.append((score, chunk))
+
+    # -----------------------------
     # Highest score first
+    # -----------------------------
     scored.sort(
         key=lambda x: x[0],
         reverse=True
     )
 
-    # Remove duplicate paragraphs
-    seen = set()
+    # -----------------------------
+    # Remove duplicates
+    # -----------------------------
     result = []
 
-    for score, paragraph in scored:
+    seen = set()
 
-        if paragraph not in seen:
+    for score, chunk in scored:
 
-            seen.add(paragraph)
+        if chunk not in seen:
 
-            result.append(paragraph)
+            seen.add(chunk)
+
+            result.append(chunk)
 
         if len(result) == 3:
             break
 
-    # Return best matching paragraphs
+    # -----------------------------
+    # Return best match
+    # -----------------------------
     return "\n\n".join(result)[:6000]
 
 def chat(message, history, pdf_file):
