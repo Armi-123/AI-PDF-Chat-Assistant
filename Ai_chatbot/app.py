@@ -96,13 +96,18 @@ def chatbot(message, history, pdf_file):
     if any(
         word in question
         for word in [
-            "summary","summarize","summarise","brief"
+            "summary",
+            "summarize",
+            "summarise",
+            "brief",
+            "overview",
+            "short summary"
         ]
     ):
         return summarize_pdf(pdf_file)
 
-    if "pdf title" in question:
-        return f"PDF Title: {get_pdf_title(pdf_content)}"
+    # if "pdf title" in question:
+    #     return f"PDF Title: {get_pdf_title(pdf_content)}"
 
     if "pdf size" in question:
         return f"{round(os.path.getsize(pdf_file)/1024,2)} KB"
@@ -225,7 +230,7 @@ def chatbot(message, history, pdf_file):
     # NOT FOUND IN PDF
     # FALLBACK TO GEMINI
     # -----------------------------
-    if len(relevant_text.strip()) < 10:
+    if len(relevant_text.strip()):
         return "Information not found in uploaded PDF."
 
     # -----------------------------
@@ -265,8 +270,8 @@ def chatbot(message, history, pdf_file):
         answer = response.text.strip()
 
         if (
-            "information not found" not in answer.lower()
-            and len(relevant_text.strip()) < 50
+            len(relevant_text.strip()) < 50
+            and "information not found" not in answer.lower()
         ):
             answer = "Information not found in uploaded PDF."
 
@@ -304,7 +309,7 @@ def chatbot(message, history, pdf_file):
         SESSION_FILE,
         "a",
         encoding="utf-8"
-    ) as file:
+        ) as file:
 
         file.write(
             f"User: {message}\n"
@@ -332,13 +337,19 @@ def summarize_pdf(pdf_file):
 
     Rules:
     1. Summarize ONLY the uploaded PDF.
-    2. Do NOT add outside information.
-    3. Use bullet points.
-    4. Cover all important topics.
-    5. Keep the summary concise.
+    2. Do NOT use outside knowledge.
+    3. Use clear bullet points.
+    4. Include:
+    - Main topics
+    - Important definitions
+    - Key concepts
+    - Tools/Technologies (if any)
+    - Important conclusions
+    5. Do not skip major sections.
+    6. Keep the summary concise and well organized.
 
     PDF Content:
-    {pdf_content[:15000]}
+    {pdf_content[:50000]}
     """
 
     try:
@@ -361,7 +372,7 @@ def summarize_pdf(pdf_file):
         ]
 
         summary = "\n".join(
-            [f"• {line}" for line in lines[:15]]
+            [f"• {line[:250]}" for line in lines[:15]]
         )
 
         return summary
@@ -417,8 +428,25 @@ def extract_pdf_text(pdf_file):
     
 def find_relevant_text(pdf_text, question):
 
-    lines = pdf_text.split("\n")
+    # Split PDF into paragraphs instead of lines
+    paragraphs = [
+        p.strip()
+        for p in re.split(r"\n\s*\n", pdf_text)
+        if p.strip()
+    ]
 
+    # Convert question to lowercase
+    question = question.lower()
+
+    # Common keyword replacements
+    question = (
+        question
+        .replace("ai", "artificial intelligence")
+        .replace("ml", "machine learning")
+        .replace("db", "database")
+    )
+
+    # Ignore common words
     stop_words = {
         "what","is","the","a","an","of",
         "how","many","who","where","when",
@@ -426,57 +454,64 @@ def find_relevant_text(pdf_text, question):
         "tell","me","pdf","share","uploaded",
         "please","can","could","would","give",
         "define","describe","about","from",
-        "their","there","this","that"
+        "their","there","this","that",
+        "explain","difference","between"
     }
 
+    # Extract important words from question
     question_words = {
         word
-        for word in re.findall(r'\w+', question.lower())
+        for word in re.findall(r"\w+", question)
         if word not in stop_words
     }
 
     scored = []
 
-    for i, line in enumerate(lines):
+    # Search every paragraph
+    for paragraph in paragraphs:
 
-        line_words = set(
-            re.findall(r'\w+', line.lower())
+        paragraph_words = set(
+            re.findall(r"\w+", paragraph.lower())
         )
 
         score = len(
-            question_words.intersection(line_words)
+            question_words.intersection(paragraph_words)
         )
 
-        minimum_score = max(2, len(question_words) // 2)
+        minimum_score = max(
+            1,
+            len(question_words) // 2
+        )
 
         if score >= minimum_score:
 
-            context = "\n".join(
-                lines[max(0, i-2):min(len(lines), i+6)]
-            )
-
             scored.append(
-                (score, context)
+                (score, paragraph.strip())
             )
 
+    # Highest score first
     scored.sort(
         key=lambda x: x[0],
         reverse=True
     )
 
+    # Remove duplicate paragraphs
     seen = set()
     result = []
 
-    for score, context in scored:
+    for score, paragraph in scored:
 
-        if context not in seen:
-            seen.add(context)
-            result.append(context)
+        if paragraph not in seen:
+
+            seen.add(paragraph)
+
+            result.append(paragraph)
 
         if len(result) == 3:
             break
 
-    return "\n".join(result)[:4000]
+    # Return best matching paragraphs
+    return "\n\n".join(result)[:6000]
 
 def chat(message, history, pdf_file):
 
