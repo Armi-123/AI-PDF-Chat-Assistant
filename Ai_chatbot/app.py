@@ -231,7 +231,37 @@ def chatbot(message, history, pdf_file):
     # FALLBACK TO GEMINI
     # -----------------------------
     if not relevant_text.strip():
-        return "Information not found in uploaded PDF."
+
+        try:
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=f"""
+    The uploaded PDF does not contain the answer.
+
+    Please answer the following question using your own knowledge.
+
+    Question:
+    {message}
+    """
+            )
+
+            answer = response.text
+
+            chat_history.append(
+                f"User: {message}\nAI: {answer}\n\n"
+            )
+
+            return answer
+
+        except Exception as e:
+
+            print("Gemini Error:", e)
+
+            return (
+                "Gemini is temporarily unavailable.\n"
+                "Please try again later."
+            )
 
     # -----------------------------
     # PDF QA PROMPT
