@@ -71,6 +71,11 @@ def chatbot(message, history, pdf_file):
 
             answer = response.text
 
+            answer = (
+                "🤖 Source: Gemini AI\n\n"
+                + answer
+            )
+
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
             )
@@ -217,7 +222,7 @@ def chatbot(message, history, pdf_file):
     # -----------------------------
     # FIND RELEVANT PDF CONTENT
     # -----------------------------
-    relevant_text = find_relevant_text(
+    relevant_text, pages = find_relevant_text(
         pdf_content,
         message
     )
@@ -246,7 +251,10 @@ def chatbot(message, history, pdf_file):
     """
             )
 
-            answer = response.text
+            answer = (
+                "🤖 Source: Gemini AI\n\n"
+                + response.text
+            )
 
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
@@ -297,7 +305,11 @@ def chatbot(message, history, pdf_file):
             contents=prompt
         )
 
-        answer = response.text.strip()
+        answer = (
+            f"📄 Source: Uploaded PDF\n"
+            f"📑 Page(s): {', '.join(map(str, pages))}\n\n"
+            + answer
+        )
 
         if (
             len(relevant_text.strip()) < 50
@@ -436,15 +448,21 @@ def extract_pdf_text(pdf_file):
     text = ""
 
     try:
+
         reader = PdfReader(pdf_file)
 
-        for page in reader.pages:
+        for page_number, page in enumerate(reader.pages, start=1):
 
             page_text = page.extract_text()
 
             if page_text:
-                text += page_text + "\n"
-                
+
+                text += (
+                    f"\n===== PAGE {page_number} =====\n"
+                    + page_text
+                    + "\n"
+                )
+
         text = re.sub(r'\n+', '\n', text)
         text = re.sub(r'[ \t]+', ' ', text)
         text = text.strip()
@@ -455,7 +473,7 @@ def extract_pdf_text(pdf_file):
         print("PDF Error:", e)
 
     return text
-    
+  
 def find_relevant_text(pdf_text, question):
 
     # -----------------------------
@@ -522,8 +540,16 @@ def find_relevant_text(pdf_text, question):
     # Score every chunk
     # -----------------------------
     scored = []
+    page_numbers = set()
 
     for chunk in chunks:
+
+        match = re.search(r"===== PAGE (\d+) =====", chunk)
+
+        page = None
+
+        if match:
+            page = int(match.group(1))
 
         text = chunk.lower()
 
@@ -538,7 +564,11 @@ def find_relevant_text(pdf_text, question):
             score += 10
 
         if score > 0:
+
             scored.append((score, chunk))
+
+            if page is not None:
+                page_numbers.add(page)
 
     # -----------------------------
     # Highest score first
@@ -569,7 +599,7 @@ def find_relevant_text(pdf_text, question):
     # -----------------------------
     # Return best match
     # -----------------------------
-    return "\n\n".join(result)[:6000]
+    return "\n\n".join(result)[:6000], sorted(page_numbers)
 
 def chat(message, history, pdf_file):
 
