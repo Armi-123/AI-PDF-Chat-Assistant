@@ -2,7 +2,6 @@ import os
 import gradio as gr
 from google import genai
 from dotenv import load_dotenv
-# from datetime import datetime
 from pypdf import PdfReader
 import re
 import time
