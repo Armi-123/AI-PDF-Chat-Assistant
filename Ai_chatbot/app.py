@@ -56,32 +56,52 @@ def get_pdf_title(pdf_text):
     return "Unknown PDF"
 
 def chatbot(message, history, pdf_file, progress=gr.Progress()):
-    
-    time.sleep(0.5)
-    
-    # -----------------------------
-    # NORMAL AI CHAT MODE
-    # -----------------------------
+
+    # ---------------------------------------
+    # INITIALIZATION
+    # ---------------------------------------
+    time.sleep(0.1)
+    progress(0.05, desc="Initializing...")
+
+    message = message.strip()
+
+    if not message:
+        return "Please enter a question."
+
+    # ---------------------------------------
+    # NORMAL GEMINI CHAT
+    # ---------------------------------------
     if pdf_file is None:
 
         try:
-            progress(0.3, desc="Thinking...")
+
+            progress(0.40, desc="Thinking...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=message
             )
 
-            answer = response.text
-
             answer = (
                 "🤖 Source: Gemini AI\n\n"
-                + response.text
+                + response.text.strip()
             )
 
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
             )
+
+            with open(
+                SESSION_FILE,
+                "a",
+                encoding="utf-8"
+            ) as file:
+
+                file.write(f"User: {message}\n")
+                file.write(f"AI: {answer}\n")
+                file.write("-" * 50 + "\n")
+
+            progress(1.0, desc="Completed ✅")
 
             return answer
 
@@ -93,16 +113,18 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                 "Gemini is temporarily unavailable.\n"
                 "Please try again later."
             )
+    # ---------------------------------------
+    # PDF MODE
+    # ---------------------------------------
+    progress(0.20, desc="Reading PDF...")
 
-    # -----------------------------
-    # PDF CHAT MODE
-    # -----------------------------
     pdf_content = extract_pdf_text(pdf_file)
-    
-    progress(0.2, desc="Reading PDF...")
 
     question = message.lower()
     
+     # ---------------------------------------
+    # SUMMARY
+    # ---------------------------------------
     if any(
         word in question
         for word in [
@@ -114,23 +136,52 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
             "short summary"
         ]
     ):
+
+        progress(1.0, desc="Completed ✅")
         return summarize_pdf(pdf_file)
-
-    # if "pdf title" in question:
-    #     return f"PDF Title: {get_pdf_title(pdf_content)}"
-
+    
+    
+    # ---------------------------------------
+    # PDF SIZE
+    # ---------------------------------------
     if "pdf size" in question:
-        return f"{round(os.path.getsize(pdf_file)/1024,2)} KB"
-    
-    if "word count" in question:
-        return f"Total Words: {len(pdf_content.split())}"
 
+        progress(1.0, desc="Completed ✅")
+
+        return (
+            f"{round(os.path.getsize(pdf_file)/1024,2)} KB"
+        )
+
+    # ---------------------------------------
+    # WORD COUNT
+    # ---------------------------------------
+    if "word count" in question:
+
+        progress(1.0, desc="Completed ✅")
+
+        return (
+            f"Total Words: {len(pdf_content.split())}"
+        )
+
+    # ---------------------------------------
+    # CHARACTER COUNT
+    # ---------------------------------------
     if "character count" in question:
-        return f"Total Characters: {len(pdf_content)}"
-    
+
+        progress(1.0, desc="Completed ✅")
+
+        return (
+            f"Total Characters: {len(pdf_content)}"
+        )
+        
+    # ---------------------------------------
+    # PDF STATS
+    # ---------------------------------------
     if "pdf stats" in question:
 
         reader = PdfReader(pdf_file)
+
+        progress(1.0, desc="Completed ✅")
 
         return (
             f"Title: {get_pdf_title(pdf_content)}\n"
@@ -140,22 +191,14 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
             f"Size: {round(os.path.getsize(pdf_file)/1024,2)} KB"
         )
 
-    print("=" * 50)
-    print("QUESTION:", message)
-    print("PDF FILE:", pdf_file)
-    print("PDF LENGTH:", len(pdf_content))
-    print("=" * 50)
-
     # -----------------------------
     # TOTAL QUESTIONS
     # -----------------------------
-    # TOTAL QUESTIONS
-
     if (
         "how many question" in question
         or "how many questions" in question
         or "total question" in question
-        ):
+    ):
 
         match = re.search(
             r'1\s*[–-]\s*(\d+)',
@@ -163,6 +206,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         )
 
         if match:
+            progress(1.0, desc="Completed ✅")
             return f"There are {match.group(1)} questions."
 
         questions = re.findall(
@@ -172,8 +216,10 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         )
 
         if questions:
+            progress(1.0, desc="Completed ✅")
             return f"There are {len(questions)} questions."
 
+        progress(1.0, desc="Completed ✅")
         return "Question count not found."
 
 
@@ -184,7 +230,9 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         "pdf title" in question
         or "pdf name" in question
     ):
+        progress(1.0, desc="Completed ✅")
         return f"PDF Title: {get_pdf_title(pdf_content)}"
+
 
     # -----------------------------
     # PAGE COUNT
@@ -193,7 +241,9 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         reader = PdfReader(pdf_file)
 
+        progress(1.0, desc="Completed ✅")
         return f"Total Pages: {len(reader.pages)}"
+
 
     # -----------------------------
     # CONTACT INFO
@@ -219,53 +269,72 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         result.extend(emails)
         result.extend(phones)
 
+        progress(1.0, desc="Completed ✅")
+
         if result:
             return "\n".join(result)
 
         return "No contact information found."
-
-    # -----------------------------
+    
+     # -----------------------------
     # FIND RELEVANT PDF CONTENT
     # -----------------------------
+    progress(0.50, desc="Searching PDF...")
+
     relevant_text = find_relevant_text(
         pdf_content,
         message
     )
-    progress(0.5, desc="Searching document...")
-    
-    print("\nRELEVANT TEXT:")
-    print(relevant_text)
-    print("=" * 50)
+
+    print("=" * 60)
+    print("QUESTION :", message)
+    print("=" * 60)
+    print("RELEVANT TEXT:")
+    print(relevant_text if relevant_text else "NOT FOUND")
+    print("=" * 60)
 
     # -----------------------------
     # NOT FOUND IN PDF
     # FALLBACK TO GEMINI
     # -----------------------------
-    if not relevant_text.strip():
+    if not relevant_text:
 
         try:
-            progress(0.8, desc="Generating answer...")
+
+            progress(0.80, desc="Using Gemini AI...")
+
             response = client.models.generate_content(
-                
                 model="gemini-2.5-flash",
                 contents=f"""
-    The uploaded PDF does not contain the answer.
+The uploaded PDF does not contain the answer.
 
-    Please answer the following question using your own knowledge.
+Answer the following question using your own knowledge.
 
-    Question:
-    {message}
-    """
+Question:
+{message}
+"""
             )
 
             answer = (
                 "🤖 Source: Gemini AI\n\n"
-                + response.text
+                + response.text.strip()
             )
+
+            progress(1.0, desc="Completed ✅")
 
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
             )
+
+            with open(
+                SESSION_FILE,
+                "a",
+                encoding="utf-8"
+            ) as file:
+
+                file.write(f"User: {message}\n")
+                file.write(f"AI: {answer}\n")
+                file.write("-" * 50 + "\n")
 
             return answer
 
@@ -281,29 +350,31 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # -----------------------------
     # PDF QA PROMPT
     # -----------------------------
+    progress(0.80, desc="Generating Answer...")
+
     prompt = f"""
-    You are a PDF Question Answering Assistant.
+You are a PDF Question Answering Assistant.
 
-    STRICT RULES:
+STRICT RULES:
 
-    1. Answer ONLY using the PDF content.
-    2. Never use your own knowledge.
-    3. Never guess.
-    4. Never explain beyond the PDF.
-    5. If the answer is not clearly present, reply EXACTLY:
+1. Answer ONLY using the PDF content.
+2. Never use your own knowledge.
+3. Never guess.
+4. Never explain beyond the PDF.
+5. If the answer is not clearly present, reply EXACTLY:
 
-    Information not found in uploaded PDF.
+Information not found in uploaded PDF.
 
-    6. Keep the answer within 3-5 lines.
+6. Keep the answer within 3-5 lines.
 
-    PDF Content:
-    {relevant_text}
+PDF Content:
+{relevant_text}
 
-    Question:
-    {message}
+Question:
+{message}
 
-    Answer:
-    """
+Answer:
+"""
 
     try:
 
@@ -311,18 +382,35 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
             model="gemini-2.5-flash",
             contents=prompt
         )
+
         answer = response.text.strip()
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + response.text.strip()
-        )
-
+        
+        # ---------------------------------------
+        # Fallback if PDF answer is too weak
+        # ---------------------------------------
         if (
-            len(relevant_text.strip()) < 50
-            and "information not found" not in answer.lower()
+            len(relevant_text.strip()) < 80
+            and "information not found" in answer.lower()
         ):
-            answer = "Information not found in uploaded PDF."
+
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=message
+            )
+
+            answer = (
+                "🤖 Source: Gemini AI\n\n"
+                + response.text.strip()
+            )
+
+        else:
+
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + answer
+            )
+
+        progress(1.0, desc="Completed ✅")
 
     except Exception as e:
 
@@ -358,20 +446,12 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         SESSION_FILE,
         "a",
         encoding="utf-8"
-        ) as file:
+    ) as file:
 
-        file.write(
-            f"User: {message}\n"
-        )
+        file.write(f"User: {message}\n")
+        file.write(f"AI: {answer}\n")
+        file.write("-" * 50 + "\n")
 
-        file.write(
-            f"AI: {answer}\n"
-        )
-
-        file.write(
-            "-" * 50 + "\n"
-        )
-        
     return answer
 
 def summarize_pdf(pdf_file):
@@ -482,20 +562,27 @@ def extract_pdf_text(pdf_file):
   
 def find_relevant_text(pdf_text, question):
 
+    # -----------------------------
+    # Split PDF into lines
+    # -----------------------------
+    lines = [
+        line.strip()
+        for line in pdf_text.splitlines()
+        if line.strip()
+    ]
+
+    # -----------------------------
+    # Create chunks (20 lines each)
+    # -----------------------------
+    chunk_size = 20
+
     chunks = []
 
-    pages = re.split(
-        r"(===== PAGE \d+ =====)",
-        pdf_text
-    )
+    for i in range(0, len(lines), chunk_size):
 
-    for i in range(1, len(pages), 2):
-
-        page_header = pages[i]
-
-        page_content = pages[i + 1]
-
-        chunk = page_header + "\n" + page_content
+        chunk = "\n".join(
+            lines[i:i + chunk_size]
+        )
 
         chunks.append(chunk)
 
@@ -515,7 +602,7 @@ def find_relevant_text(pdf_text, question):
         question = question.replace(old, new)
 
     # -----------------------------
-    # Stop words
+    # Stop Words
     # -----------------------------
     stop_words = {
         "what","is","the","a","an","of",
@@ -536,19 +623,11 @@ def find_relevant_text(pdf_text, question):
     }
 
     # -----------------------------
-    # Score every chunk
+    # Score each chunk
     # -----------------------------
     scored = []
-    page_numbers = set()
 
     for chunk in chunks:
-
-        match = re.search(r"===== PAGE (\d+) =====", chunk)
-
-        page = None
-
-        if match:
-            page = int(match.group(1))
 
         text = chunk.lower()
 
@@ -563,38 +642,31 @@ def find_relevant_text(pdf_text, question):
             score += 10
 
         if score > 0:
-
             scored.append((score, chunk))
 
-            if page is not None:
-                page_numbers.add(page)
-
     # -----------------------------
-    # Highest score first
+    # Sort by score
     # -----------------------------
     scored.sort(
         key=lambda x: x[0],
         reverse=True
     )
 
-    # If best score is too low,
-    # treat as "not found"
-
+    # -----------------------------
+    # No relevant content
+    # -----------------------------
     if not scored:
         return ""
 
     if scored[0][0] < 6:
         return ""
 
-
     # -----------------------------
-    # Remove duplicates
+    # Take Top 3 chunks
     # -----------------------------
     result = []
 
     seen = set()
-
-    selected_pages = set()
 
     for score, chunk in scored:
 
@@ -604,21 +676,11 @@ def find_relevant_text(pdf_text, question):
 
             result.append(chunk)
 
-            match = re.search(
-                r"===== PAGE (\d+) =====",
-                chunk
-            )
-
-            if match:
-                selected_pages.add(
-                    int(match.group(1))
-                )
-
         if len(result) == 3:
             break
 
     # -----------------------------
-    # Return best match
+    # Return Relevant Text
     # -----------------------------
     return "\n\n".join(result)[:6000]
 
