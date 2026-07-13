@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 # from datetime import datetime
 from pypdf import PdfReader
 import re
+import time
 
 # Load API Key
 load_dotenv()
@@ -55,14 +56,17 @@ def get_pdf_title(pdf_text):
 
     return "Unknown PDF"
 
-def chatbot(message, history, pdf_file):
-
+def chatbot(message, history, pdf_file, progress=gr.Progress()):
+    
+    time.sleep(0.5)
+    
     # -----------------------------
     # NORMAL AI CHAT MODE
     # -----------------------------
     if pdf_file is None:
 
         try:
+            progress(0.3, desc="Thinking...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -73,7 +77,7 @@ def chatbot(message, history, pdf_file):
 
             answer = (
                 "🤖 Source: Gemini AI\n\n"
-                + answer
+                + response.text
             )
 
             chat_history.append(
@@ -95,6 +99,8 @@ def chatbot(message, history, pdf_file):
     # PDF CHAT MODE
     # -----------------------------
     pdf_content = extract_pdf_text(pdf_file)
+    
+    progress(0.2, desc="Reading PDF...")
 
     question = message.lower()
     
@@ -222,11 +228,12 @@ def chatbot(message, history, pdf_file):
     # -----------------------------
     # FIND RELEVANT PDF CONTENT
     # -----------------------------
-    relevant_text, pages = find_relevant_text(
+    relevant_text = find_relevant_text(
         pdf_content,
         message
     )
-
+    progress(0.5, desc="Searching document...")
+    
     print("\nRELEVANT TEXT:")
     print(relevant_text)
     print("=" * 50)
@@ -238,8 +245,9 @@ def chatbot(message, history, pdf_file):
     if not relevant_text.strip():
 
         try:
-
+            progress(0.8, desc="Generating answer...")
             response = client.models.generate_content(
+                
                 model="gemini-2.5-flash",
                 contents=f"""
     The uploaded PDF does not contain the answer.
@@ -304,11 +312,11 @@ def chatbot(message, history, pdf_file):
             model="gemini-2.5-flash",
             contents=prompt
         )
+        answer = response.text.strip()
 
         answer = (
-            f"📄 Source: Uploaded PDF\n"
-            f"📑 Page(s): {', '.join(map(str, pages))}\n\n"
-            + answer
+            "📄 Source: Uploaded PDF\n\n"
+            + response.text.strip()
         )
 
         if (
@@ -458,8 +466,7 @@ def extract_pdf_text(pdf_file):
             if page_text:
 
                 text += (
-                    f"\n===== PAGE {page_number} =====\n"
-                    + page_text
+                    page_text
                     + "\n"
                 )
 
@@ -476,27 +483,20 @@ def extract_pdf_text(pdf_file):
   
 def find_relevant_text(pdf_text, question):
 
-    # -----------------------------
-    # Split PDF into lines
-    # -----------------------------
-    lines = [
-        line.strip()
-        for line in pdf_text.splitlines()
-        if line.strip()
-    ]
-
-    # -----------------------------
-    # Create chunks of 20 lines
-    # -----------------------------
     chunks = []
 
-    chunk_size = 20
+    pages = re.split(
+        r"(===== PAGE \d+ =====)",
+        pdf_text
+    )
 
-    for i in range(0, len(lines), chunk_size):
+    for i in range(1, len(pages), 2):
 
-        chunk = "\n".join(
-            lines[i:i + chunk_size]
-        )
+        page_header = pages[i]
+
+        page_content = pages[i + 1]
+
+        chunk = page_header + "\n" + page_content
 
         chunks.append(chunk)
 
@@ -578,12 +578,24 @@ def find_relevant_text(pdf_text, question):
         reverse=True
     )
 
+    # If best score is too low,
+    # treat as "not found"
+
+    if not scored:
+        return ""
+
+    if scored[0][0] < 6:
+        return ""
+
+
     # -----------------------------
     # Remove duplicates
     # -----------------------------
     result = []
 
     seen = set()
+
+    selected_pages = set()
 
     for score, chunk in scored:
 
@@ -593,13 +605,23 @@ def find_relevant_text(pdf_text, question):
 
             result.append(chunk)
 
+            match = re.search(
+                r"===== PAGE (\d+) =====",
+                chunk
+            )
+
+            if match:
+                selected_pages.add(
+                    int(match.group(1))
+                )
+
         if len(result) == 3:
             break
 
     # -----------------------------
     # Return best match
     # -----------------------------
-    return "\n\n".join(result)[:6000], sorted(page_numbers)
+    return "\n\n".join(result)[:6000]
 
 def chat(message, history, pdf_file):
 
