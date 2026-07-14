@@ -61,7 +61,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # INITIALIZATION
     # ---------------------------------------
     time.sleep(0.1)
-    progress(0.05, desc="Initializing...")
+    progress(0.05, desc="🚀 Starting AI Assistant...")
 
     message = message.strip()
 
@@ -75,7 +75,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         try:
 
-            progress(0.40, desc="Thinking...")
+            progress(0.35, desc="🧠 Understanding your question...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -101,7 +101,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                 file.write(f"AI: {answer}\n")
                 file.write("-" * 50 + "\n")
 
-            progress(1.0, desc="Completed ✅")
+            progress(1.0, desc="🎉 Response ready!")
 
             return answer
 
@@ -116,8 +116,8 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     # PDF MODE
     # ---------------------------------------
-    progress(0.20, desc="Reading PDF...")
-
+    progress(0.20, desc="📖 Reading uploaded PDF...")
+    
     pdf_content = extract_pdf_text(pdf_file)
 
     question = message.lower()
@@ -137,7 +137,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         ]
     ):
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
         return summarize_pdf(pdf_file)
     
     
@@ -146,7 +146,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     if "pdf size" in question:
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
         return (
             f"{round(os.path.getsize(pdf_file)/1024,2)} KB"
@@ -157,7 +157,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     if "word count" in question:
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
         return (
             f"Total Words: {len(pdf_content.split())}"
@@ -168,7 +168,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     if "character count" in question:
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
         return (
             f"Total Characters: {len(pdf_content)}"
@@ -181,7 +181,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         reader = PdfReader(pdf_file)
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
         return (
             f"Title: {get_pdf_title(pdf_content)}\n"
@@ -206,7 +206,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         )
 
         if match:
-            progress(1.0, desc="Completed ✅")
+            progress(1.0, desc="🎉 Response ready!")
             return f"There are {match.group(1)} questions."
 
         questions = re.findall(
@@ -216,10 +216,10 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         )
 
         if questions:
-            progress(1.0, desc="Completed ✅")
+            progress(1.0, desc="🎉 Response ready!")
             return f"There are {len(questions)} questions."
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
         return "Question count not found."
 
 
@@ -230,7 +230,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         "pdf title" in question
         or "pdf name" in question
     ):
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
         return f"PDF Title: {get_pdf_title(pdf_content)}"
 
 
@@ -241,7 +241,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         reader = PdfReader(pdf_file)
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
         return f"Total Pages: {len(reader.pages)}"
 
 
@@ -269,7 +269,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         result.extend(emails)
         result.extend(phones)
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
         if result:
             return "\n".join(result)
@@ -279,7 +279,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
      # -----------------------------
     # FIND RELEVANT PDF CONTENT
     # -----------------------------
-    progress(0.50, desc="Searching PDF...")
+    progress(0.50, desc="🔍 Searching relevant information...")
 
     relevant_text = find_relevant_text(
         pdf_content,
@@ -301,7 +301,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         try:
 
-            progress(0.80, desc="Using Gemini AI...")
+            progress(0.75, desc="🤖 Consulting Gemini AI...")
 
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -320,7 +320,7 @@ Question:
                 + response.text.strip()
             )
 
-            progress(1.0, desc="Completed ✅")
+            progress(1.0, desc="🎉 Response ready!")
 
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
@@ -350,7 +350,7 @@ Question:
     # -----------------------------
     # PDF QA PROMPT
     # -----------------------------
-    progress(0.80, desc="Generating Answer...")
+    progress(0.80, desc="✍️ Preparing response...")
 
     prompt = f"""
 You are a PDF Question Answering Assistant.
@@ -389,8 +389,11 @@ Answer:
         # Fallback if PDF answer is too weak
         # ---------------------------------------
         if (
-            len(relevant_text.strip()) < 80
-            and "information not found" in answer.lower()
+            not relevant_text.strip()
+            or (
+                len(relevant_text.strip()) < 80
+                and "information not found" in answer.lower()
+            )
         ):
 
             response = client.models.generate_content(
@@ -410,7 +413,7 @@ Answer:
                 + answer
             )
 
-        progress(1.0, desc="Completed ✅")
+        progress(1.0, desc="🎉 Response ready!")
 
     except Exception as e:
 
