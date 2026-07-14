@@ -707,15 +707,21 @@ def chat(message, history, pdf_file):
 
     return history, ""
 
-with gr.Blocks() as demo:
+with gr.Blocks(title="AI PDF Chat Assistant") as demo:
 
     gr.Markdown("# 🤖 AI PDF Chat Assistant")
 
+    # -----------------------------
+    # Upload PDF
+    # -----------------------------
     pdf_file = gr.File(
         label="📄 Upload PDF",
         type="filepath"
     )
 
+    # -----------------------------
+    # PDF Summary
+    # -----------------------------
     summary_output = gr.Textbox(
         label="📋 PDF Summary",
         lines=10
@@ -729,18 +735,43 @@ with gr.Blocks() as demo:
         outputs=summary_output
     )
 
+    # -----------------------------
+    # Chatbot
+    # -----------------------------
     chatbot_ui = gr.Chatbot(
         label="💬 PDF Chat",
-        height=500,
-        type="messages"
-    )
-    msg = gr.Textbox(
-        label="Ask Question",
-        placeholder="Ask question from uploaded PDF..."
+        height=550,
+        type="messages",
+        show_copy_button=True
     )
 
-    send_btn = gr.Button("Send")
-    
+    msg = gr.Textbox(
+        label="Ask Question",
+        placeholder="Ask anything about the uploaded PDF..."
+    )
+
+    with gr.Row():
+
+        send_btn = gr.Button(
+            "📨 Send",
+            variant="primary"
+        )
+
+        clear_btn = gr.Button(
+            "🗑️ Clear Chat"
+        )
+
+        export_btn = gr.Button(
+            "💾 Export Chat"
+        )
+
+    export_output = gr.Textbox(
+        label="Export Status"
+    )
+
+    # -----------------------------
+    # Send
+    # -----------------------------
     msg.submit(
         fn=chat,
         inputs=[msg, chatbot_ui, pdf_file],
@@ -752,18 +783,23 @@ with gr.Blocks() as demo:
         inputs=[msg, chatbot_ui, pdf_file],
         outputs=[chatbot_ui, msg]
     )
-    
-    export_btn = gr.Button("💾 Export Chat")
 
-    export_output = gr.Textbox(
-        label="Export Status"
+    # -----------------------------
+    # Clear Chat
+    # -----------------------------
+    clear_btn.click(
+        lambda: ([], ""),
+        outputs=[chatbot_ui, msg]
     )
 
+    # -----------------------------
+    # Export
+    # -----------------------------
     export_btn.click(
         fn=save_chat,
         outputs=export_output
     )
-    
+
 demo.launch(
     share=False,
     debug=True
