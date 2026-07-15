@@ -1,5 +1,5 @@
 import re
-
+from pdf.pdf_utils import extract_pdf_text
 
 def generate_suggestions(pdf_text):
 
@@ -79,3 +79,12 @@ def generate_suggestions(pdf_text):
             unique.append(item)
 
     return "\n".join(unique)
+
+def load_suggestions(pdf_file):
+
+    if pdf_file is None:
+        return ""
+
+    pdf_text = extract_pdf_text(pdf_file)
+
+    return generate_suggestions(pdf_text)
