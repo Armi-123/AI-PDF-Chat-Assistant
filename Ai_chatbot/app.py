@@ -10,7 +10,8 @@ from features.chat_statistics import (
     update_stats,
     get_statistics
 )
-from utils.pdf_search import find_relevant_text
+from pdf.pdf_search import find_relevant_text
+from pdf.pdf_utils import get_pdf_title,extract_pdf_text
 
 # Load API Key
 load_dotenv()
@@ -44,22 +45,6 @@ SESSION_FILE = os.path.join(
     f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 )
 
-def get_pdf_title(pdf_text):
-
-    lines = pdf_text.split("\n")
-
-    for line in lines:
-        line = line.strip()
-
-        if len(line) < 5:
-            continue
-
-        if line.isdigit():
-            continue
-
-        return line
-
-    return "Unknown PDF"
 
 def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
@@ -539,41 +524,6 @@ def save_chat():
         f"Location:\n{filename}"
     )
 
-def extract_pdf_text(pdf_file):
-
-    if pdf_file is None:
-        return ""
-
-    if pdf_file in pdf_cache:
-        return pdf_cache[pdf_file]
-
-    text = ""
-
-    try:
-
-        reader = PdfReader(pdf_file)
-
-        for page_number, page in enumerate(reader.pages, start=1):
-
-            page_text = page.extract_text()
-
-            if page_text:
-
-                text += (
-                    page_text
-                    + "\n"
-                )
-
-        text = re.sub(r'\n+', '\n', text)
-        text = re.sub(r'[ \t]+', ' ', text)
-        text = text.strip()
-
-        pdf_cache[pdf_file] = text
-
-    except Exception as e:
-        print("PDF Error:", e)
-
-    return text
 
 def chat(message, history, pdf_file):
 
