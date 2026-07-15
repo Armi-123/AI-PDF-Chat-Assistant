@@ -5,6 +5,11 @@ from dotenv import load_dotenv
 from pypdf import PdfReader
 import re
 import time
+from features.smart_suggestions import generate_suggestions
+from features.chat_statistics import (
+    update_stats,
+    get_statistics
+)
 
 # Load API Key
 load_dotenv()
@@ -710,6 +715,15 @@ def chat(message, history, pdf_file):
 
     return history, ""
 
+def load_suggestions(pdf_file):
+
+    if pdf_file is None:
+        return ""
+
+    pdf_text = extract_pdf_text(pdf_file)
+
+    return generate_suggestions(pdf_text)
+
 with gr.Blocks(title="AI PDF Chat Assistant") as demo:
 
     gr.Markdown("# 🤖 AI PDF Chat Assistant")
@@ -737,7 +751,28 @@ with gr.Blocks(title="AI PDF Chat Assistant") as demo:
         inputs=pdf_file,
         outputs=summary_output
     )
+    
+    # -----------------------------
+    # SMART SUGGESTIONS
+    # -----------------------------
+      
+    suggestions_output = gr.Textbox(
+        label="💡 Smart Suggestions",
+        lines=8,
+        interactive=False
+    )
 
+    pdf_file.change(
+        fn=load_suggestions,
+        inputs=pdf_file,
+        outputs=suggestions_output
+    )
+    
+    statistics_output = gr.Markdown(
+        value=get_statistics(),
+        label="📊 Chat Statistics"
+    )
+    
     # -----------------------------
     # Chatbot
     # -----------------------------
