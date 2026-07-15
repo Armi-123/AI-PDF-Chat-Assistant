@@ -1,48 +1,61 @@
 import time
 
 # -----------------------------
-# CHAT STATS
+# Global Statistics
 # -----------------------------
 
-stats = {
-    "questions": 0,
-    "pdf_answers": 0,
-    "gemini_answers": 0,
-    "words_generated": 0,
-    "start_time": time.time()
-}
+start_time = time.time()
+
+total_questions = 0
+pdf_answers = 0
+gemini_answers = 0
+total_words = 0
 
 
-def update_stats(answer, source):
+# -----------------------------
+# Update Statistics
+# -----------------------------
+def update_stats(answer):
 
-    stats["questions"] += 1
+    global total_questions
+    global pdf_answers
+    global gemini_answers
+    global total_words
 
-    if source == "pdf":
-        stats["pdf_answers"] += 1
+    print("Before:", total_questions)
 
-    elif source == "gemini":
-        stats["gemini_answers"] += 1
+    total_questions += 1
 
-    stats["words_generated"] += len(answer.split())
+    if "📄 Source: Uploaded PDF" in answer:
+        pdf_answers += 1
+    elif "🤖 Source: Gemini AI" in answer:
+        gemini_answers += 1
+
+    total_words += len(answer.split())
+
+    print("After:", total_questions)
 
 
+# -----------------------------
+# Get Statistics
+# -----------------------------
 def get_statistics():
 
-    duration = int(time.time() - stats["start_time"])
+    duration = int(time.time() - start_time)
 
     minutes = duration // 60
     seconds = duration % 60
 
     return f"""
-## 📊 Chat Statistics
+### 📊 Chat Statistics
 
-💬 Questions Asked : **{stats['questions']}**
+💬 Questions Asked : **{total_questions}**
 
-📄 PDF Answers : **{stats['pdf_answers']}**
+📄 PDF Answers : **{pdf_answers}**
 
-🤖 Gemini Answers : **{stats['gemini_answers']}**
+🤖 Gemini Answers : **{gemini_answers}**
 
-📝 Words Generated : **{stats['words_generated']}**
+📝 Words Generated : **{total_words}**
 
 ⏱ Chat Duration : **{minutes}m {seconds}s**
 """

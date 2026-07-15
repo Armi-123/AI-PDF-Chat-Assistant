@@ -16,7 +16,7 @@ from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_search import find_relevant_text
 
 from features.chat_statistics import update_stats
-
+from utils.chat_memory import save_session
 from utils.chat_memory import (
     chat_history,
     SESSION_FILE
@@ -54,33 +54,23 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                 + response.text.strip()
             )
             
-            update_stats(answer, "gemini")
+            update_stats(answer)
 
-            chat_history.append(
-                f"User: {message}\nAI: {answer}\n\n"
-            )
-
-            with open(
-                SESSION_FILE,
-                "a",
-                encoding="utf-8"
-            ) as file:
-
-                file.write(f"User: {message}\n")
-                file.write(f"AI: {answer}\n")
-                file.write("-" * 50 + "\n")
-
+            save_session(message, answer)
             progress(1.0, desc="🎉 Response ready!")
 
             return answer
 
         except Exception as e:
 
-            print("Gemini Error:", e)
+            import traceback
+
+            traceback.print_exc()
+
+            print(f"Gemini Error: {e}")
 
             return (
-                "Gemini is temporarily unavailable.\n"
-                "Please try again later."
+                f"Gemini Error:\n{e}"
             )
     # ---------------------------------------
     # PDF MODE
@@ -288,32 +278,23 @@ Question:
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
-            update_stats(answer, "gemini")
+            update_stats(answer)
             progress(1.0, desc="🎉 Response ready!")
 
-            chat_history.append(
-                f"User: {message}\nAI: {answer}\n\n"
-            )
-
-            with open(
-                SESSION_FILE,
-                "a",
-                encoding="utf-8"
-            ) as file:
-
-                file.write(f"User: {message}\n")
-                file.write(f"AI: {answer}\n")
-                file.write("-" * 50 + "\n")
+            save_session(message, answer)
 
             return answer
 
         except Exception as e:
 
-            print("Gemini Error:", e)
+            import traceback
+
+            traceback.print_exc()
+
+            print(f"Gemini Error: {e}")
 
             return (
-                "Gemini is temporarily unavailable.\n"
-                "Please try again later."
+                f"Gemini Error:\n{e}"
             )
 
     # -----------------------------
@@ -375,7 +356,7 @@ Answer:
                 + response.text.strip()
             )
 
-            update_stats(answer, "gemini")
+            update_stats(answer)
             
         else:
 
@@ -384,7 +365,7 @@ Answer:
                 + answer
             )
             
-            update_stats(answer, "pdf")
+            update_stats(answer)
 
         progress(1.0, desc="🎉 Response ready!")
 
@@ -407,26 +388,13 @@ Answer:
             )
 
         return (
-            "Gemini is temporarily unavailable.\n"
+            f"Gemini Error:\n{e}"
             "Please try again later."
         )
 
     # -----------------------------
     # SAVE CHAT
     # -----------------------------
-    chat_history.append(
-        f"User: {message}\nAI: {answer}\n\n"
-    )
-
-    with open(
-        SESSION_FILE,
-        "a",
-        encoding="utf-8"
-    ) as file:
-
-        file.write(f"User: {message}\n")
-        file.write(f"AI: {answer}\n")
-        file.write("-" * 50 + "\n")
+    save_session(message, answer)
 
     return answer
-
