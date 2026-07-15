@@ -23,4 +23,4 @@ def chat(message, history, pdf_file):
         "content": answer
     })
 
-    return history, "", get_statistics()
+    return history, ""
