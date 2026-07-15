@@ -10,6 +10,7 @@ from features.chat_statistics import (
     update_stats,
     get_statistics
 )
+from utils.pdf_search import find_relevant_text
 
 # Load API Key
 load_dotenv()
@@ -91,6 +92,8 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
+            
+            update_stats(answer, "gemini")
 
             chat_history.append(
                 f"User: {message}\nAI: {answer}\n\n"
@@ -324,7 +327,7 @@ Question:
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
-
+            update_stats(answer, "gemini")
             progress(1.0, desc="🎉 Response ready!")
 
             chat_history.append(
@@ -411,12 +414,16 @@ Answer:
                 + response.text.strip()
             )
 
+            update_stats(answer, "gemini")
+            
         else:
 
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
                 + answer
             )
+            
+            update_stats(answer, "pdf")
 
         progress(1.0, desc="🎉 Response ready!")
 
@@ -567,130 +574,6 @@ def extract_pdf_text(pdf_file):
         print("PDF Error:", e)
 
     return text
-  
-def find_relevant_text(pdf_text, question):
-
-    # -----------------------------
-    # Split PDF into lines
-    # -----------------------------
-    lines = [
-        line.strip()
-        for line in pdf_text.splitlines()
-        if line.strip()
-    ]
-
-    # -----------------------------
-    # Create chunks (20 lines each)
-    # -----------------------------
-    chunk_size = 20
-
-    chunks = []
-
-    for i in range(0, len(lines), chunk_size):
-
-        chunk = "\n".join(
-            lines[i:i + chunk_size]
-        )
-
-        chunks.append(chunk)
-
-    # -----------------------------
-    # Normalize question
-    # -----------------------------
-    question = question.lower()
-
-    replacements = {
-        "ai": "artificial intelligence",
-        "ml": "machine learning",
-        "db": "database",
-        "powerbi": "power bi"
-    }
-
-    for old, new in replacements.items():
-        question = question.replace(old, new)
-
-    # -----------------------------
-    # Stop Words
-    # -----------------------------
-    stop_words = {
-        "what","is","the","a","an","of",
-        "how","many","who","where","when",
-        "does","do","are","in","on","for",
-        "tell","me","pdf","uploaded",
-        "please","can","could","would",
-        "give","define","describe",
-        "about","from","their","there",
-        "this","that","explain",
-        "difference","between"
-    }
-
-    question_words = {
-        word
-        for word in re.findall(r"\w+", question)
-        if word not in stop_words
-    }
-
-    # -----------------------------
-    # Score each chunk
-    # -----------------------------
-    scored = []
-
-    for chunk in chunks:
-
-        text = chunk.lower()
-
-        score = 0
-
-        for word in question_words:
-
-            if word in text:
-                score += 2
-
-        if question in text:
-            score += 10
-
-        if score > 0:
-            scored.append((score, chunk))
-
-    # -----------------------------
-    # Sort by score
-    # -----------------------------
-    scored.sort(
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    # -----------------------------
-    # No relevant content
-    # -----------------------------
-    if not scored:
-        return ""
-
-    if scored[0][0] < 6:
-        return ""
-
-    # -----------------------------
-    # Take Top 3 chunks
-    # -----------------------------
-    result = []
-
-    seen = set()
-
-    for score, chunk in scored:
-
-        if chunk not in seen:
-
-            seen.add(chunk)
-
-            result.append(chunk)
-
-        if len(result) == 3:
-            break
-
-    # -----------------------------
-    # Return Relevant Text
-    # -----------------------------
-    return "\n\n".join(result)[:6000]
 
 def chat(message, history, pdf_file):
 
@@ -713,7 +596,7 @@ def chat(message, history, pdf_file):
         "content": answer
     })
 
-    return history, ""
+    return history, "", get_statistics()
 
 def load_suggestions(pdf_file):
 
