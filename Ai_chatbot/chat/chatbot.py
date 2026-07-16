@@ -1,23 +1,21 @@
 import os
 import re
 import time
-import gradio as gr
 
+import gradio as gr
 from pypdf import PdfReader
 
 from config.gemini_config import client
 
+from pdf.pdf_search import find_relevant_text
+from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
     extract_pdf_text,
-    get_pdf_title
+    get_pdf_title,
 )
 
-from pdf.pdf_summary import summarize_pdf
-from pdf.pdf_search import find_relevant_text
-
-from features.chat_statistics import update_stats
 from utils.chat_memory import save_session
-
+MODEL_NAME = "gemini-2.5-flash"
 
 def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
@@ -37,32 +35,73 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     if pdf_file is None:
 
+        progress(0.35, desc="🧠 Understanding your question...")
+
         try:
 
-            progress(0.35, desc="🧠 Understanding your question...")
+            response = None
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=message
-            )
+            # Retry up to 3 times if Gemini server is busy
+            for attempt in range(3):
+
+                try:
+
+                    response = client.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=message
+                    )
+
+                    break
+
+                except Exception as e:
+
+                    if "503" in str(e):
+
+                        print(f"Gemini Busy... Retry {attempt+1}/3")
+
+                        time.sleep(3)
+
+                        continue
+
+                    raise
+
+            if response is None:
+
+                return (
+                    "🤖 Gemini server is currently busy.\n\n"
+                    "Please try again in a few seconds."
+                )
 
             answer = (
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
-            
+
             save_session(message, answer)
+
             progress(1.0, desc="🎉 Response ready!")
 
             return answer
 
         except Exception as e:
 
-            import traceback
+            print("Gemini Error:", e)
 
-            traceback.print_exc()
+            error = str(e)
 
-            print(f"Gemini Error: {e}")
+            if "429" in error:
+
+                return (
+                    "⚠ Gemini API quota exceeded.\n"
+                    "Please wait a few minutes or use another API key."
+                )
+
+            elif "503" in error:
+
+                return (
+                    "⚠ Gemini server is busy.\n"
+                    "Please try again after a few seconds."
+                )
 
             return (
                 f"Gemini Error:\n{e}"
@@ -253,76 +292,117 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # -----------------------------
     if not relevant_text:
 
+        progress(0.75, desc="🤖 Consulting Gemini AI...")
+
         try:
 
-            progress(0.75, desc="🤖 Consulting Gemini AI...")
+            response = None
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"""
-The uploaded PDF does not contain the answer.
+            # Retry if Gemini server is busy
+            for attempt in range(3):
 
-Answer the following question using your own knowledge.
+                try:
 
-Question:
-{message}
-"""
-            )
+                    response = client.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=f"""
+    The uploaded PDF does not contain enough information to answer the question.
+
+    Please answer using your own knowledge.
+
+    Question:
+    {message}
+
+    Answer:
+    """
+                    )
+
+                    break
+
+                except Exception as e:
+
+                    if "503" in str(e):
+
+                        print(f"Gemini Busy... Retry {attempt+1}/3")
+
+                        time.sleep(3)
+
+                        continue
+
+                    raise
+
+            if response is None:
+
+                return (
+                    "⚠ Gemini server is currently busy.\n\n"
+                    "Please try again after a few seconds."
+                )
 
             answer = (
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
-            progress(1.0, desc="🎉 Response ready!")
 
             save_session(message, answer)
+
+            progress(1.0, desc="🎉 Response ready!")
 
             return answer
 
         except Exception as e:
 
-            import traceback
+            print("Gemini Error:", e)
 
-            traceback.print_exc()
+            error = str(e)
 
-            print(f"Gemini Error: {e}")
+            if "429" in error:
+
+                return (
+                    "⚠ Gemini API quota exceeded.\n"
+                    "Please wait a few minutes or use another API key."
+                )
+
+            elif "503" in error:
+
+                return (
+                    "⚠ Gemini server is busy.\n"
+                    "Please try again after a few seconds."
+                )
 
             return (
                 f"Gemini Error:\n{e}"
             )
-
+            
     # -----------------------------
     # PDF QA PROMPT
     # -----------------------------
     progress(0.80, desc="✍️ Preparing response...")
 
     prompt = f"""
-You are a PDF Question Answering Assistant.
+You are an expert PDF Question Answering Assistant.
 
-STRICT RULES:
+Your job is to answer ONLY from the PDF content below.
 
-1. Answer ONLY using the PDF content.
-2. Never use your own knowledge.
-3. Never guess.
-4. Never explain beyond the PDF.
-5. If the answer is not clearly present, reply EXACTLY:
+Rules:
 
-📄 I couldn't find this information in the uploaded PDF.
+1. Never use outside knowledge.
+2. Never guess.
+3. Never invent information.
+4. If the answer is not present in the PDF, reply ONLY:
 
-Switching to Gemini AI...
+Information not found in uploaded PDF.
 
-6. Keep the answer concise.
+5. If the PDF contains:
 
-If the PDF contains bullet points,
-return bullet points.
+• Definition → return the definition.
+• Steps → return numbered steps.
+• Bullet points → preserve bullets.
+• Table → summarize the table.
+• Comparison → use comparison format.
 
-If the PDF contains definitions,
-return the definition.
+6. Keep answers clear and concise.
 
-If the PDF contains steps,
-return numbered steps.
-
-Never invent information.
+7. Do not repeat the question.
 
 PDF Content:
 {relevant_text}
@@ -336,7 +416,7 @@ Answer:
     try:
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_NAME,
             contents=prompt
         )
 
@@ -345,15 +425,16 @@ Answer:
         # ---------------------------------------
         # Fallback if PDF answer is too weak
         # ---------------------------------------
-        pdf_confidence = len(relevant_text.split())
+        pdf_confidence = len(re.findall(r"\w+", relevant_text))
 
         if (
             pdf_confidence < 20
             or "information not found" in answer.lower()
+            or len(answer.strip()) < 30
         ):
 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=MODEL_NAME,
                 contents=message
             )
 
