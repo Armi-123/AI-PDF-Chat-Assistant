@@ -13,7 +13,7 @@ from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_title,
 )
-
+from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
 MODEL_NAME = "gemini-2.5-flash"
 
@@ -48,7 +48,15 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
                     response = client.models.generate_content(
                         model=MODEL_NAME,
-                        contents=message
+                        contents=f"""
+                    Previous Conversation:
+
+                    {conversation}
+
+                    Current Question:
+
+                    {message}
+                    """
                     )
 
                     break
@@ -114,6 +122,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     pdf_content = extract_pdf_text(pdf_file)
 
     question = message.lower()
+    conversation = build_conversation(history)
     
      # ---------------------------------------
     # SUMMARY
@@ -306,12 +315,17 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                     response = client.models.generate_content(
                         model=MODEL_NAME,
                         contents=f"""
-    The uploaded PDF does not contain enough information to answer the question.
+Previous Conversation:
 
-    Please answer using your own knowledge.
+{conversation}
 
-    Question:
-    {message}
+The uploaded PDF does not contain the answer.
+
+Answer using your own knowledge.
+
+Current Question:
+
+{message}
 
     Answer:
     """
@@ -407,7 +421,12 @@ Information not found in uploaded PDF.
 PDF Content:
 {relevant_text}
 
+Conversation History:
+
+{conversation}
+
 Question:
+
 {message}
 
 Answer:
