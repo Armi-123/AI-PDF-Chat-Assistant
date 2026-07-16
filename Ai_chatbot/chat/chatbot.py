@@ -17,10 +17,7 @@ from pdf.pdf_search import find_relevant_text
 
 from features.chat_statistics import update_stats
 from utils.chat_memory import save_session
-from utils.chat_memory import (
-    chat_history,
-    SESSION_FILE
-)
+
 
 def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
@@ -54,8 +51,6 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
                 + response.text.strip()
             )
             
-            update_stats(answer)
-
             save_session(message, answer)
             progress(1.0, desc="🎉 Response ready!")
 
@@ -278,7 +273,6 @@ Question:
                 "🤖 Source: Gemini AI\n\n"
                 + response.text.strip()
             )
-            update_stats(answer)
             progress(1.0, desc="🎉 Response ready!")
 
             save_session(message, answer)
@@ -313,9 +307,22 @@ STRICT RULES:
 4. Never explain beyond the PDF.
 5. If the answer is not clearly present, reply EXACTLY:
 
-Information not found in uploaded PDF.
+📄 I couldn't find this information in the uploaded PDF.
 
-6. Keep the answer within 3-5 lines.
+Switching to Gemini AI...
+
+6. Keep the answer concise.
+
+If the PDF contains bullet points,
+return bullet points.
+
+If the PDF contains definitions,
+return the definition.
+
+If the PDF contains steps,
+return numbered steps.
+
+Never invent information.
 
 PDF Content:
 {relevant_text}
@@ -338,12 +345,11 @@ Answer:
         # ---------------------------------------
         # Fallback if PDF answer is too weak
         # ---------------------------------------
+        pdf_confidence = len(relevant_text.split())
+
         if (
-            not relevant_text.strip()
-            or (
-                len(relevant_text.strip()) < 80
-                and "information not found" in answer.lower()
-            )
+            pdf_confidence < 20
+            or "information not found" in answer.lower()
         ):
 
             response = client.models.generate_content(
@@ -356,7 +362,6 @@ Answer:
                 + response.text.strip()
             )
 
-            update_stats(answer)
             
         else:
 
@@ -365,7 +370,6 @@ Answer:
                 + answer
             )
             
-            update_stats(answer)
 
         progress(1.0, desc="🎉 Response ready!")
 

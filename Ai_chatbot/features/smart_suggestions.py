@@ -1,84 +1,82 @@
 import re
+from collections import Counter
+
 from pdf.pdf_utils import extract_pdf_text
 
-def generate_suggestions(pdf_text):
 
+def extract_topics(pdf_text, top_n=8):
     """
-    Generate smart questions based on PDF content.
+    Extract important topics dynamically from PDF.
     """
-
-    suggestions = []
 
     text = pdf_text.lower()
 
-    # ----------------------------------------------------
-    # Default Suggestions
-    # ----------------------------------------------------
-    suggestions.extend([
+    stop_words = {
+        "the", "and", "for", "that", "this", "with",
+        "from", "into", "about", "have", "will",
+        "their", "there", "your", "what", "when",
+        "where", "which", "whose", "while", "been",
+        "being", "are", "was", "were", "can", "could",
+        "would", "should", "shall", "may", "might",
+        "also", "than", "then", "them", "they",
+        "you", "our", "his", "her", "its", "not",
+        "all", "any", "each", "other", "some",
+        "using", "used", "use", "into", "over",
+        "more", "most", "very", "much",
+        "pdf", "page", "chapter", "section",
+        "answer", "question"
+    }
+
+    words = re.findall(r"[A-Za-z][A-Za-z0-9+\-]{2,}", text)
+
+    words = [
+        w for w in words
+        if w not in stop_words
+    ]
+
+    counts = Counter(words)
+
+    topics = []
+
+    for word, freq in counts.most_common():
+
+        if freq >= 2:
+
+            topics.append(word.title())
+
+        if len(topics) == top_n:
+            break
+
+    return topics
+
+
+def generate_suggestions(pdf_text):
+
+    suggestions = [
+
         "📋 Summarize this PDF",
         "📖 What is the main topic?",
         "⭐ List important points"
-    ])
 
-    # ----------------------------------------------------
-    # Power BI
-    # ----------------------------------------------------
-    if "power bi" in text:
-        suggestions.append("💬 What is Power BI?")
+    ]
 
-    # ----------------------------------------------------
-    # SQL
-    # ----------------------------------------------------
-    if "sql" in text:
-        suggestions.append("💬 Explain SQL.")
+    topics = extract_topics(pdf_text)
 
-    if "join" in text:
-        suggestions.append("💬 Explain SQL Join.")
+    for topic in topics:
 
-    # ----------------------------------------------------
-    # Excel
-    # ----------------------------------------------------
-    if "excel" in text:
-        suggestions.append("💬 Explain Excel.")
+        suggestions.append(f"💬 What is {topic}?")
+        suggestions.append(f"💬 Explain {topic}.")
 
-    # ----------------------------------------------------
-    # Python
-    # ----------------------------------------------------
-    if "python" in text:
-        suggestions.append("💬 Explain Python.")
-
-    # ----------------------------------------------------
-    # Machine Learning
-    # ----------------------------------------------------
-    if "machine learning" in text:
-        suggestions.append("💬 What is Machine Learning?")
-
-    # ----------------------------------------------------
-    # Data Analytics
-    # ----------------------------------------------------
-    if "data analytics" in text:
-        suggestions.append("💬 What is Data Analytics?")
-
-    if "data analyst" in text:
-        suggestions.append("💬 What are Data Analyst skills?")
-
-    # ----------------------------------------------------
-    # Interview Questions
-    # ----------------------------------------------------
-    if "interview" in text:
-        suggestions.append("💬 What are important interview questions?")
-
-    # ----------------------------------------------------
-    # Remove duplicate suggestions
-    # ----------------------------------------------------
     unique = []
 
     for item in suggestions:
 
         if item not in unique:
+
             unique.append(item)
 
     return "\n".join(unique)
+
 
 def load_suggestions(pdf_file):
 

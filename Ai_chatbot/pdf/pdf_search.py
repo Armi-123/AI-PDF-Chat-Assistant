@@ -1,4 +1,10 @@
 import re
+from difflib import SequenceMatcher
+
+
+def similarity(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
 
 def find_relevant_text(pdf_text, question):
 
@@ -11,7 +17,7 @@ def find_relevant_text(pdf_text, question):
     pdf_text = pdf_text.strip()
 
     # -----------------------------
-    # Split into paragraphs
+    # Split PDF into chunks
     # -----------------------------
     chunks = []
 
@@ -28,9 +34,9 @@ def find_relevant_text(pdf_text, question):
     if len(chunks) < 5:
 
         lines = [
-            x.strip()
-            for x in pdf_text.splitlines()
-            if x.strip()
+            line.strip()
+            for line in pdf_text.splitlines()
+            if line.strip()
         ]
 
         chunk_size = 15
@@ -40,7 +46,7 @@ def find_relevant_text(pdf_text, question):
         for i in range(0, len(lines), chunk_size):
 
             chunks.append(
-                "\n".join(lines[i:i+chunk_size])
+                "\n".join(lines[i:i + chunk_size])
             )
 
     # -----------------------------
@@ -54,10 +60,7 @@ def find_relevant_text(pdf_text, question):
         "db": "database",
         "powerbi": "power bi",
         "power-bi": "power bi",
-        "excel sheet": "excel",
-        "sql join": "join",
-        "joins": "join",
-        "analyst": "data analyst"
+        "joins": "join"
     }
 
     for old, new in replacements.items():
@@ -74,19 +77,20 @@ def find_relevant_text(pdf_text, question):
         "please","can","could","would",
         "give","define","describe",
         "about","from","their","there",
-        "this","that","explain","show","list"
+        "this","that","show","list",
+        "explain"
     }
 
-    question_words = {
+    question_words = [
         word
         for word in re.findall(r"\w+", question)
         if word not in stop_words
-    }
-    
+    ]
+
     question_phrase = " ".join(question_words)
 
     # -----------------------------
-    # Score Chunks
+    # Score chunks
     # -----------------------------
     scored = []
 
@@ -96,66 +100,73 @@ def find_relevant_text(pdf_text, question):
 
         score = 0
 
-        # Exact question match
+        # Exact question
         if question in text:
+            score += 35
+
+        # Phrase
+        if question_phrase and question_phrase in text:
             score += 25
 
-        # Important keyword phrase match
-        if question_phrase and question_phrase in text:
-            score += 20
+        # Heading
+        first_line = chunk.split("\n")[0].lower()
 
-        # Individual keywords
+        if question_phrase in first_line:
+            score += 30
+
+        # Keywords
         for word in question_words:
 
             if word in text:
-                score += 5
+                score += 8
 
-        # Heading bonus
-        first_line = chunk.split("\n")[0].lower()
+            # Fuzzy word match
+            else:
 
-        if question in first_line:
-            score += 50
+                for token in re.findall(r"\w+", text):
 
-        for word in question_words:
+                    if similarity(word, token) > 0.90:
 
-            if word in first_line:
-                score += 10
-                
-        # Short definition bonus
+                        score += 4
+                        break
+
+        # Definition bonus
         if "answer" in text:
-            score += 2
+            score += 3
 
-        if score >= 8:
+        if "definition" in text:
+            score += 3
+
+        if score >= 10:
             scored.append((score, chunk))
 
     # -----------------------------
-    # No Match
+    # Nothing found
     # -----------------------------
     if not scored:
         return ""
 
-    scored = sorted(
-        scored,
-        key=lambda x: (x[0], len(x[1])),
+    scored.sort(
+        key=lambda x: x[0],
         reverse=True
     )
 
     # -----------------------------
-    # Take Best Chunks
+    # Best chunks
     # -----------------------------
     result = []
 
-    seen = set()
+    used = set()
 
     for score, chunk in scored:
 
-        if chunk not in seen:
+        if chunk not in used:
 
-            seen.add(chunk)
+            used.add(chunk)
 
             result.append(chunk)
 
-        if len(result) == 2:
+        if len(result) == 3:
             break
 
     return "\n\n".join(result)[:6000]
