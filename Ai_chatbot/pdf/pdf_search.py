@@ -5,7 +5,10 @@ def find_relevant_text(pdf_text, question):
     # -----------------------------
     # Clean PDF
     # -----------------------------
-    pdf_text = re.sub(r"\n{2,}", "\n", pdf_text)
+    pdf_text = re.sub(r"\r", "", pdf_text)
+    pdf_text = re.sub(r"[ \t]+", " ", pdf_text)
+    pdf_text = re.sub(r"\n{2,}", "\n\n", pdf_text)
+    pdf_text = pdf_text.strip()
 
     # -----------------------------
     # Split into paragraphs
@@ -49,7 +52,12 @@ def find_relevant_text(pdf_text, question):
         "ai": "artificial intelligence",
         "ml": "machine learning",
         "db": "database",
-        "powerbi": "power bi"
+        "powerbi": "power bi",
+        "power-bi": "power bi",
+        "excel sheet": "excel",
+        "sql join": "join",
+        "joins": "join",
+        "analyst": "data analyst"
     }
 
     for old, new in replacements.items():
@@ -66,7 +74,7 @@ def find_relevant_text(pdf_text, question):
         "please","can","could","would",
         "give","define","describe",
         "about","from","their","there",
-        "this","that"
+        "this","that","explain","show","list"
     }
 
     question_words = {
@@ -74,6 +82,8 @@ def find_relevant_text(pdf_text, question):
         for word in re.findall(r"\w+", question)
         if word not in stop_words
     }
+    
+    question_phrase = " ".join(question_words)
 
     # -----------------------------
     # Score Chunks
@@ -86,9 +96,13 @@ def find_relevant_text(pdf_text, question):
 
         score = 0
 
-        # Exact phrase
+        # Exact question match
         if question in text:
             score += 25
+
+        # Important keyword phrase match
+        if question_phrase and question_phrase in text:
+            score += 20
 
         # Individual keywords
         for word in question_words:
@@ -99,16 +113,19 @@ def find_relevant_text(pdf_text, question):
         # Heading bonus
         first_line = chunk.split("\n")[0].lower()
 
+        if question in first_line:
+            score += 50
+
         for word in question_words:
 
             if word in first_line:
                 score += 10
-
+                
         # Short definition bonus
         if "answer" in text:
             score += 2
 
-        if score > 0:
+        if score >= 8:
             scored.append((score, chunk))
 
     # -----------------------------
@@ -117,8 +134,9 @@ def find_relevant_text(pdf_text, question):
     if not scored:
         return ""
 
-    scored.sort(
-        key=lambda x: x[0],
+    scored = sorted(
+        scored,
+        key=lambda x: (x[0], len(x[1])),
         reverse=True
     )
 
@@ -137,7 +155,7 @@ def find_relevant_text(pdf_text, question):
 
             result.append(chunk)
 
-        if len(result) == 3:
+        if len(result) == 2:
             break
 
     return "\n\n".join(result)[:6000]
