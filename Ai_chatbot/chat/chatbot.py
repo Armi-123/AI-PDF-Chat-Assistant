@@ -15,6 +15,8 @@ from pdf.pdf_utils import (
 )
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
+from utils.semantic_search import build_index, semantic_search
+
 MODEL_NAME = "gemini-2.5-flash"
 
 def chatbot(message, history, pdf_files, progress=gr.Progress()):
@@ -126,6 +128,14 @@ def chatbot(message, history, pdf_files, progress=gr.Progress()):
 
     for pdf in pdf_files:
         pdf_content += "\n\n" + extract_pdf_text(pdf)
+        
+    
+    # ---------------------------------------
+    # Build Semantic Search Index
+    # ---------------------------------------
+    index, chunks = build_index(pdf_content)
+    
+    
     
      # ---------------------------------------
     # SUMMARY
@@ -369,10 +379,24 @@ def chatbot(message, history, pdf_files, progress=gr.Progress()):
     # -----------------------------
     progress(0.50, desc="🔍 Searching relevant information...")
 
-    relevant_text = find_relevant_text(
-        pdf_content,
-        message
+    # ---------------------------------------
+    # Try Semantic Search First
+    # ---------------------------------------
+    relevant_text = semantic_search(
+        message,
+        index,
+        chunks
     )
+
+    # ---------------------------------------
+    # Fallback to Keyword Search
+    # ---------------------------------------
+    if not relevant_text.strip():
+
+        relevant_text = find_relevant_text(
+            pdf_content,
+            message
+        )
 
     print("=" * 60)
     print("QUESTION :", message)
