@@ -18,8 +18,9 @@ with gr.Blocks(
     # PDF UPLOAD
     # =====================================================
     pdf_file = gr.File(
-        label="📄 Upload PDF",
-        type="filepath"
+        label="📄 Upload PDF(s)",
+        type="filepath",
+        file_count="multiple"
     )
 
     # =====================================================
