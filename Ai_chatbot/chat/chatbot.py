@@ -17,7 +17,7 @@ from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
 MODEL_NAME = "gemini-2.5-flash"
 
-def chatbot(message, history, pdf_file, progress=gr.Progress()):
+def chatbot(message, history, pdf_files, progress=gr.Progress()):
 
     # ---------------------------------------
     # INITIALIZATION
@@ -26,6 +26,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     progress(0.05, desc="🚀 Starting AI Assistant...")
 
     message = message.strip()
+    conversation = build_conversation(history)
 
     if not message:
         return "Please enter a question."
@@ -33,7 +34,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     # NORMAL GEMINI CHAT
     # ---------------------------------------
-    if pdf_file is None:
+    if not pdf_files:
 
         progress(0.35, desc="🧠 Understanding your question...")
 
@@ -117,12 +118,14 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # ---------------------------------------
     # PDF MODE
     # ---------------------------------------
-    progress(0.20, desc="📖 Reading uploaded PDF...")
-    
-    pdf_content = extract_pdf_text(pdf_file)
+    progress(0.20, desc="📖 Reading uploaded PDFs...")
 
     question = message.lower()
-    conversation = build_conversation(history)
+
+    pdf_content = ""
+
+    for pdf in pdf_files:
+        pdf_content += "\n\n" + extract_pdf_text(pdf)
     
      # ---------------------------------------
     # SUMMARY
@@ -140,7 +143,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     ):
 
         progress(1.0, desc="🎉 Response ready!")
-        return summarize_pdf(pdf_file)
+        return summarize_pdf(pdf_files)
     
     
     # ---------------------------------------
@@ -150,9 +153,17 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         progress(1.0, desc="🎉 Response ready!")
 
-        return (
-            f"{round(os.path.getsize(pdf_file)/1024,2)} KB"
-        )
+        result = []
+
+        for pdf in pdf_files:
+
+            size = round(os.path.getsize(pdf) / 1024, 2)
+
+            result.append(
+                f"{os.path.basename(pdf)} : {size} KB"
+            )
+
+        return "\n".join(result)
 
     # ---------------------------------------
     # WORD COUNT
@@ -161,9 +172,18 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         progress(1.0, desc="🎉 Response ready!")
 
-        return (
-            f"Total Words: {len(pdf_content.split())}"
-        )
+        result = []
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(pdf)
+
+            result.append(
+                f"{os.path.basename(pdf)} : {len(text.split())} words"
+            )
+
+        return "\n".join(result)
+
 
     # ---------------------------------------
     # CHARACTER COUNT
@@ -172,26 +192,45 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
 
         progress(1.0, desc="🎉 Response ready!")
 
-        return (
-            f"Total Characters: {len(pdf_content)}"
-        )
+        result = []
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(pdf)
+
+            result.append(
+                f"{os.path.basename(pdf)} : {len(text)} characters"
+            )
+
+        return "\n".join(result)
         
     # ---------------------------------------
     # PDF STATS
     # ---------------------------------------
     if "pdf stats" in question:
 
-        reader = PdfReader(pdf_file)
-
         progress(1.0, desc="🎉 Response ready!")
 
-        return (
-            f"Title: {get_pdf_title(pdf_content)}\n"
-            f"Pages: {len(reader.pages)}\n"
-            f"Words: {len(pdf_content.split())}\n"
-            f"Characters: {len(pdf_content)}\n"
-            f"Size: {round(os.path.getsize(pdf_file)/1024,2)} KB"
-        )
+        result = []
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(pdf)
+
+            reader = PdfReader(pdf)
+
+            result.append(
+                f"""📄 {os.path.basename(pdf)}
+
+    Title : {get_pdf_title(text)}
+    Pages : {len(reader.pages)}
+    Words : {len(text.split())}
+    Characters : {len(text)}
+    Size : {round(os.path.getsize(pdf)/1024,2)} KB
+    """
+            )
+
+        return "\n\n".join(result)
 
     # -----------------------------
     # TOTAL QUESTIONS
@@ -202,26 +241,42 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         or "total question" in question
     ):
 
-        match = re.search(
-            r'1\s*[–-]\s*(\d+)',
-            pdf_content
-        )
+        result = []
 
-        if match:
-            progress(1.0, desc="🎉 Response ready!")
-            return f"There are {match.group(1)} questions."
+        for pdf in pdf_files:
 
-        questions = re.findall(
-            r'^\d+\.',
-            pdf_content,
-            re.MULTILINE
-        )
+            text = extract_pdf_text(pdf)
 
-        if questions:
-            progress(1.0, desc="🎉 Response ready!")
-            return f"There are {len(questions)} questions."
+            match = re.search(
+                r'1\s*[–-]\s*(\d+)',
+                text
+            )
+
+            if match:
+
+                result.append(
+                    f"📄 {os.path.basename(pdf)} : {match.group(1)} questions"
+                )
+
+                continue
+
+            questions = re.findall(
+                r'^\d+\.',
+                text,
+                re.MULTILINE
+            )
+
+            if questions:
+
+                result.append(
+                    f"📄 {os.path.basename(pdf)} : {len(questions)} questions"
+                )
 
         progress(1.0, desc="🎉 Response ready!")
+
+        if result:
+            return "\n".join(result)
+
         return "Question count not found."
 
 
@@ -232,8 +287,20 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         "pdf title" in question
         or "pdf name" in question
     ):
+
+        result = []
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(pdf)
+
+            result.append(
+                f"📄 {os.path.basename(pdf)} : {get_pdf_title(text)}"
+            )
+
         progress(1.0, desc="🎉 Response ready!")
-        return f"PDF Title: {get_pdf_title(pdf_content)}"
+
+        return "\n".join(result)
 
 
     # -----------------------------
@@ -241,10 +308,19 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
     # -----------------------------
     if "how many pages" in question:
 
-        reader = PdfReader(pdf_file)
+        result = []
+
+        for pdf in pdf_files:
+
+            reader = PdfReader(pdf)
+
+            result.append(
+                f"📄 {os.path.basename(pdf)} : {len(reader.pages)} pages"
+            )
 
         progress(1.0, desc="🎉 Response ready!")
-        return f"Total Pages: {len(reader.pages)}"
+
+        return "\n".join(result)
 
 
     # -----------------------------
@@ -256,20 +332,30 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
         or "phone" in question
     ):
 
-        emails = re.findall(
-            r'[\w\.-]+@[\w\.-]+\.\w+',
-            pdf_content
-        )
-
-        phones = re.findall(
-            r'(?:\+91[- ]?)?[6-9]\d{9}',
-            pdf_content
-        )
-
         result = []
 
-        result.extend(emails)
-        result.extend(phones)
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(pdf)
+
+            emails = re.findall(
+                r'[\w\.-]+@[\w\.-]+\.\w+',
+                text
+            )
+
+            phones = re.findall(
+                r'(?:\+91[- ]?)?[6-9]\d{9}',
+                text
+            )
+
+            if emails or phones:
+
+                result.append(f"📄 {os.path.basename(pdf)}")
+
+                result.extend(emails)
+                result.extend(phones)
+
+                result.append("")
 
         progress(1.0, desc="🎉 Response ready!")
 
@@ -277,7 +363,7 @@ def chatbot(message, history, pdf_file, progress=gr.Progress()):
             return "\n".join(result)
 
         return "No contact information found."
-    
+        
      # -----------------------------
     # FIND RELEVANT PDF CONTENT
     # -----------------------------
