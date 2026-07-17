@@ -1,38 +1,53 @@
 from config.gemini_config import client
 from pdf.pdf_utils import extract_pdf_text
+import os
 import re
 
-def summarize_pdf(pdf_file):
+MODEL_NAME = "gemini-2.5-flash"
 
-    pdf_content = extract_pdf_text(pdf_file)
 
-    if not pdf_content:
-        return "Please upload a PDF first."
+def summarize_pdf(pdf_files):
+
+    if not pdf_files:
+        return "Please upload one or more PDFs first."
+
+    pdf_content = ""
+
+    for pdf in pdf_files:
+
+        pdf_content += (
+            f"\n\n========== {os.path.basename(pdf)} ==========\n\n"
+        )
+
+        pdf_content += extract_pdf_text(pdf)
 
     prompt = f"""
-    You are a PDF Summarization Assistant.
+You are an expert PDF Summarization Assistant.
 
-    Rules:
-    1. Summarize ONLY the uploaded PDF.
-    2. Do NOT use outside knowledge.
-    3. Use clear bullet points.
-    4. Include:
-    - Main topics
-    - Important definitions
-    - Key concepts
-    - Tools/Technologies (if any)
-    - Important conclusions
-    5. Do not skip major sections.
-    6. Keep the summary concise and well organized.
+Rules:
 
-    PDF Content:
-    {pdf_content[:50000]}
-    """
+1. Summarize ONLY the uploaded PDF(s).
+2. Do NOT use outside knowledge.
+3. If multiple PDFs are uploaded, summarize each separately.
+4. Use clear headings and bullet points.
+5. Include:
+   • Main Topics
+   • Important Definitions
+   • Key Concepts
+   • Tools / Technologies
+   • Important Conclusions
+6. Do not skip important sections.
+7. Keep the summary concise and well organized.
+
+PDF Content:
+
+{pdf_content[:45000]}
+"""
 
     try:
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_NAME,
             contents=prompt
         )
 
@@ -42,15 +57,19 @@ def summarize_pdf(pdf_file):
 
         print("Summary Error:", e)
 
-        lines = [
-            para.strip()
-            for para in re.split(r'\n\s*\n', pdf_content)
-            if para.strip()
+        paragraphs = [
+            p.strip()
+            for p in re.split(r"\n\s*\n", pdf_content)
+            if p.strip()
         ]
 
         summary = "\n".join(
-            [f"• {line[:250]}" for line in lines[:15]]
+            f"• {p[:250]}"
+            for p in paragraphs[:20]
         )
 
-        return summary
-    
+        return (
+            "⚠ Gemini summary unavailable.\n\n"
+            "Quick Summary:\n\n"
+            + summary
+        )

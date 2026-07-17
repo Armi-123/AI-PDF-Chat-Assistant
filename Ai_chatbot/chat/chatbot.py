@@ -527,6 +527,10 @@ Answer:
 
         answer = response.text.strip()
         
+        # Remove duplicate source label if Gemini returns it
+        answer = answer.replace("📄 Source: Uploaded PDF", "").strip()
+        answer = answer.replace("🤖 Source: Gemini AI", "").strip()
+        
         # ---------------------------------------
         # Fallback if PDF answer is too weak
         # ---------------------------------------

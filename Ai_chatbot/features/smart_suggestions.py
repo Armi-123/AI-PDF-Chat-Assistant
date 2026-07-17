@@ -78,11 +78,28 @@ def generate_suggestions(pdf_text):
     return "\n".join(unique)
 
 
-def load_suggestions(pdf_file):
+def load_suggestions(pdf_files):
 
-    if pdf_file is None:
+    if not pdf_files:
         return ""
 
-    pdf_text = extract_pdf_text(pdf_file)
+    pdf_text = ""
+
+    for pdf in pdf_files:
+
+        try:
+            text = extract_pdf_text(pdf)
+
+            if text:
+                pdf_text += "\n\n" + text
+
+        except Exception as e:
+            print(f"Suggestion Error ({pdf}):", e)
+
+    if not pdf_text.strip():
+        return ""
+
+    # Prevent sending extremely large text
+    pdf_text = pdf_text[:50000]
 
     return generate_suggestions(pdf_text)
