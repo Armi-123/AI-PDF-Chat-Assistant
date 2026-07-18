@@ -1,6 +1,11 @@
 import pytesseract
 from pdf2image import convert_from_path
 
+# Tesseract Installation Path
+pytesseract.pytesseract.tesseract_cmd = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+)
+
 
 def extract_text_ocr(pdf_file):
     """
@@ -18,7 +23,10 @@ def extract_text_ocr(pdf_file):
 
         for image in images:
 
-            page_text = pytesseract.image_to_string(image)
+            page_text = pytesseract.image_to_string(
+                image,
+                lang="eng"
+            )
 
             if page_text:
                 text += page_text + "\n"
@@ -27,4 +35,4 @@ def extract_text_ocr(pdf_file):
 
         print("OCR Error:", e)
 
-    return text
+    return text.strip()
