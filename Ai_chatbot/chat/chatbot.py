@@ -277,6 +277,202 @@ Answer:
     return ("🤖 Source: Gemini AI\n\n"+ answer)
     
 # =====================================================
+# SECTION-AWARE PDF SEARCH
+# =====================================================
+
+def find_section_content(question, pdf_content):
+    """
+    Find structured sections in resumes and other PDFs.
+    Helps answer common questions without using Gemini.
+    """
+
+    if not question or not pdf_content:
+        return ""
+
+    question = question.lower()
+
+    section_keywords = {
+
+        "tools": [
+            "tools",
+            "tools does",
+            "tools know",
+            "platforms",
+            "software tools"
+        ],
+
+        "education": [
+            "education",
+            "educational background",
+            "education background",
+            "degree",
+            "qualification",
+            "academic background"
+        ],
+
+        "projects": [
+            "projects",
+            "projects listed",
+            "projects included",
+            "project experience"
+        ],
+
+        "experience": [
+            "internships",
+            "internship",
+            "work experience",
+            "experience",
+            "professional experience"
+        ],
+
+        "skills": [
+            "technical skills",
+            "technical skill",
+            "skills",
+            "skill set",
+            "technologies",
+            "programming skills"
+        ],
+
+        "certifications": [
+            "certifications",
+            "certification",
+            "certificates",
+            "certificate"
+        ]
+    }
+
+    matched_section = None
+
+    for section, keywords in section_keywords.items():
+
+        for keyword in keywords:
+
+            if keyword in question:
+
+                matched_section = section
+                break
+
+        if matched_section:
+            break
+
+    if not matched_section:
+        return ""
+
+    # ---------------------------------------------
+    # Section heading patterns
+    # ---------------------------------------------
+
+    section_patterns = {
+
+        "tools": [
+            r"tools\s*&\s*platforms",
+            r"tools\s+and\s+platforms",
+            r"tools"
+        ],
+
+        "education": [
+            r"education",
+            r"educational\s+background",
+            r"academic\s+background"
+        ],
+
+        "projects": [
+            r"projects",
+            r"project\s+experience"
+        ],
+
+        "experience": [
+            r"experience",
+            r"work\s+experience",
+            r"professional\s+experience"
+        ],
+
+        "skills": [
+            r"skills",
+            r"technical\s+skills",
+            r"technical\s+skill"
+        ],
+
+        "certifications": [
+            r"certifications?",
+            r"certificates?"
+        ]
+    }
+
+    # ---------------------------------------------
+    # Find section start
+    # ---------------------------------------------
+
+    lines = pdf_content.splitlines()
+
+    start_index = None
+
+    for i, line in enumerate(lines):
+
+        clean_line = line.strip().lower()
+
+        for pattern in section_patterns[matched_section]:
+
+            if re.search(
+                pattern,
+                clean_line,
+                re.IGNORECASE
+            ):
+
+                start_index = i
+                break
+
+        if start_index is not None:
+            break
+
+    if start_index is None:
+        return ""
+
+    # ---------------------------------------------
+    # Stop at next major section
+    # ---------------------------------------------
+
+    next_sections = [
+        "summary",
+        "education",
+        "skills",
+        "experience",
+        "projects",
+        "certifications",
+        "achievements",
+        "contact",
+        "technical skills",
+        "tools & platforms"
+    ]
+
+    result = []
+
+    for i in range(
+        start_index,
+        len(lines)
+    ):
+
+        line = lines[i].strip()
+
+        if i > start_index:
+
+            lower_line = line.lower()
+
+            if any(
+                lower_line == section
+                or lower_line.startswith(section + ":")
+                for section in next_sections
+            ):
+
+                break
+
+        if line:
+            result.append(line)
+
+    return "\n".join(result).strip()
+
+# =====================================================
 # CHATBOT
 # =====================================================
 
@@ -700,18 +896,35 @@ Size : {round(os.path.getsize(pdf) / 1024, 2)} KB"""
         return answer
 
     # =================================================
+    # SECTION-AWARE PDF SEARCH
+    # =================================================
+
+    progress(
+        0.50,
+        desc="🔎 Searching PDF sections..."
+    )
+
+    relevant_text = find_section_content(
+        message,
+        pdf_content
+    )
+
+
+    # =================================================
     # SEMANTIC SEARCH
     # =================================================
 
-    progress(0.50,desc="🧠 Searching PDF semantically...")
+    if not relevant_text.strip():
 
-    relevant_text = semantic_search(
-        message,
-        index,
-        chunks,
-        top_k=5,
-        min_score=0.30
-    )
+        progress(0.55,desc="🧠 Searching PDF semantically...")
+
+        relevant_text = semantic_search(
+            message,
+            index,
+            chunks,
+            top_k=5,
+            min_score=0.25
+        )
 
     # =================================================
     # KEYWORD SEARCH FALLBACK
@@ -727,19 +940,16 @@ Size : {round(os.path.getsize(pdf) / 1024, 2)} KB"""
         )
 
     # =================================================
-    # DEBUG INFORMATION
+    # DEBUG
     # =================================================
 
     print("=" * 60)
     print("QUESTION:",message)
-    print("SEMANTIC / KEYWORD RESULT:")
-    print(
-        relevant_text
+    print("PDF SEARCH RESULT:")
+    print(relevant_text
         if relevant_text
-        else "NOT FOUND"
-    )
+        else "NOT FOUND")
     print("=" * 60)
-
 
     # =================================================
     # PDF NOT FOUND → GEMINI FALLBACK
@@ -747,47 +957,108 @@ Size : {round(os.path.getsize(pdf) / 1024, 2)} KB"""
 
     if not relevant_text.strip():
 
-        progress(0.75,desc="🤖 Information not found in PDF...")
+        progress(0.75,desc="🤖 Information not found in PDF. Asking Gemini AI...")
 
-        try:
+    try:
 
-            answer = ask_gemini(
-                message,
-                conversation,
-                pdf_fallback=True
+        # -----------------------------------------
+        # Ask Gemini using general knowledge
+        # -----------------------------------------
+
+        answer = ask_gemini(
+            message,
+            conversation,
+            pdf_fallback=True
+        )
+
+        # -----------------------------------------
+        # Save Gemini response
+        # -----------------------------------------
+
+        save_session(message,answer)
+
+        progress(
+            1.0,
+            desc="🎉 Gemini response ready!"
+        )
+
+        return answer
+
+
+    except Exception as e:
+
+        print(
+            "Gemini Fallback Error:",
+            e
+        )
+
+        error = str(e).lower()
+
+
+        # -----------------------------------------
+        # GEMINI QUOTA / RATE LIMIT
+        # -----------------------------------------
+
+        if (
+            "429" in error
+            or "quota" in error
+            or "resource exhausted" in error
+            or "rate limit" in error
+        ):
+
+            progress(
+                1.0,
+                desc="⚠ Gemini API quota exceeded."
             )
-
-            save_session(message, answer)
-                
-            progress(1.0,desc="🎉 Response ready!")
-
-            return answer
-
-        except Exception as e:
-
-            print("Gemini Error:",e)
-
-            error = str(e)
-
-            if "429" in error:
-
-                return (
-                    "⚠ Gemini API quota exceeded.\n\n"
-                    "Please wait and try again later "
-                    "or use another API key."
-                )
-
-            if "503" in error:
-
-                return (
-                    "⚠ Gemini server is busy.\n\n"
-                    "Please try again after a few seconds."
-                )
 
             return (
-                f"Gemini Error:\n{e}"
+                "⚠ Gemini API quota exceeded.\n\n"
+                "The requested information was not found "
+                "in the uploaded PDF.\n\n"
+                "Please try again later or use another "
+                "Gemini API key."
             )
 
+
+        # -----------------------------------------
+        # GEMINI SERVER BUSY
+        # -----------------------------------------
+
+        if (
+            "503" in error
+            or "service unavailable" in error
+            or "overloaded" in error
+        ):
+
+            progress(
+                1.0,
+                desc="⚠ Gemini server is busy."
+            )
+
+            return (
+                "⚠ Gemini server is currently busy.\n\n"
+                "The requested information was not found "
+                "in the uploaded PDF.\n\n"
+                "Please try again after a few seconds."
+            )
+
+
+        # -----------------------------------------
+        # OTHER GEMINI ERROR
+        # -----------------------------------------
+
+        progress(
+            1.0,
+            desc="⚠ Gemini response failed."
+        )
+
+        return (
+            "⚠ Unable to get an answer from Gemini AI.\n\n"
+            "The requested information was not found "
+            "in the uploaded PDF.\n\n"
+            f"Error: {e}"
+        )
+        
     # =================================================
     # PDF QUESTION ANSWERING
     # =================================================
