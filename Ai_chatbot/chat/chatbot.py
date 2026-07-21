@@ -36,9 +36,6 @@ MODEL_NAME = "gemini-2.5-flash"
 # =====================================================
 
 def clean_source_labels(answer):
-    """
-    Remove duplicate source labels returned by Gemini.
-    """
 
     if not answer:
         return ""
@@ -178,13 +175,46 @@ def find_direct_pdf_answer(
 def ask_gemini(
     message,
     conversation="",
+    pdf_context="",
     pdf_fallback=False
 ):
     """
-    Send request to Gemini with retry handling.
+    Send request to Gemini.
+    Uses retrieved PDF context when available.
     """
 
-    if pdf_fallback:
+    if pdf_context.strip():
+
+        contents = f"""
+You are an AI PDF Chat Assistant.
+
+Use the uploaded PDF content below to answer the user's question.
+
+IMPORTANT RULES:
+1. Answer using the PDF content whenever the answer is available.
+2. Do not say you don't have information if the PDF context contains the answer.
+3. Do not use outside knowledge for PDF-related questions.
+4. If the PDF context does not contain the answer, clearly say:
+   "The uploaded PDF does not contain this information."
+5. Keep the answer clear and concise.
+6. Do not invent or guess information.
+
+Uploaded PDF Context:
+
+{pdf_context}
+
+Previous Conversation:
+
+{conversation}
+
+Current Question:
+
+{message}
+
+Answer:
+"""
+
+    else:
 
         contents = f"""
 Previous Conversation:
@@ -203,27 +233,7 @@ Current Question:
 Answer:
 """
 
-    else:
-
-        contents = f"""
-Previous Conversation:
-
-{conversation}
-
-Current Question:
-
-{message}
-
-Answer:
-"""
-
-
     response = None
-
-
-    # =================================================
-    # RETRY FOR GEMINI SERVER BUSY
-    # =================================================
 
     for attempt in range(3):
 
@@ -250,6 +260,7 @@ Answer:
                 time.sleep(3)
 
                 continue
+
             raise
 
     if response is None:
@@ -260,14 +271,11 @@ Answer:
         )
 
     answer = response.text.strip()
-    answer = clean_source_labels(
-        answer
-    )
 
+    answer = clean_source_labels(answer)
 
     return ("🤖 Source: Gemini AI\n\n"+ answer)
-
-
+    
 # =====================================================
 # CHATBOT
 # =====================================================
