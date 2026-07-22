@@ -1,9 +1,13 @@
+import os
 import re
 import time
+
+from pypdf import PdfReader
 
 from config.gemini_config import client
 
 from pdf.pdf_search import find_relevant_text
+from pdf.pdf_summary import summarize_pdf
 
 from pdf.pdf_utils import (
     extract_pdf_text,
@@ -25,11 +29,11 @@ from utils.semantic_search import (
 
 MODEL_NAME = "gemini-2.5-flash"
 
-MAX_PDF_CONTEXT = 12000
-
 SEMANTIC_TOP_K = 5
 
-SEMANTIC_MIN_SCORE = 0.30
+SEMANTIC_MIN_SCORE = 0.25
+
+MAX_PDF_CONTEXT = 12000
 
 
 # =====================================================
@@ -103,61 +107,7 @@ def find_direct_pdf_answer(
     if not pdf_content:
         return ""
 
-    question_lower = question.lower()
-
-
-    # =================================================
-    # CANDIDATE NAME
-    # =================================================
-
-    if (
-        "candidate name" in question_lower
-        or "candidate's name" in question_lower
-        or "candidate name" in question_lower
-        or "person name" in question_lower
-        or "person's name" in question_lower
-        or "what is the candidate" in question_lower
-        or "who is the candidate" in question_lower
-    ):
-
-        # Try PDF title first
-
-        title = get_pdf_title(
-            pdf_content
-        )
-
-        if (
-            title
-            and title != "Unknown PDF"
-            and not title.lower().endswith(".pdf")
-        ):
-
-            return title
-
-
-        # Search for common resume name pattern
-
-        name_match = re.search(
-            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
-            pdf_content
-        )
-
-        if name_match:
-
-            return name_match.group(1)
-
-
-        # First meaningful line
-
-        lines = [
-            line.strip()
-            for line in pdf_content.splitlines()
-            if line.strip()
-        ]
-
-        if lines:
-
-            return lines[0]
+    question_lower = question.lower().strip()
 
 
     # =================================================
@@ -167,6 +117,8 @@ def find_direct_pdf_answer(
     if (
         "email" in question_lower
         or "email address" in question_lower
+        or "email id" in question_lower
+        or "mail id" in question_lower
     ):
 
         emails = re.findall(
@@ -177,9 +129,7 @@ def find_direct_pdf_answer(
         if emails:
 
             return "\n".join(
-                dict.fromkeys(
-                    emails
-                )
+                dict.fromkeys(emails)
             )
 
 
@@ -202,9 +152,7 @@ def find_direct_pdf_answer(
         if phones:
 
             return "\n".join(
-                dict.fromkeys(
-                    phones
-                )
+                dict.fromkeys(phones)
             )
 
 
@@ -223,9 +171,7 @@ def find_direct_pdf_answer(
         if linkedin:
 
             return "\n".join(
-                dict.fromkeys(
-                    linkedin
-                )
+                dict.fromkeys(linkedin)
             )
 
 
@@ -244,13 +190,331 @@ def find_direct_pdf_answer(
         if github:
 
             return "\n".join(
-                dict.fromkeys(
-                    github
-                )
+                dict.fromkeys(github)
             )
 
 
+    # =================================================
+    # CANDIDATE NAME
+    # =================================================
+
+    if (
+        "candidate name" in question_lower
+        or "candidate's name" in question_lower
+        or "person name" in question_lower
+        or "person's name" in question_lower
+        or "who is the candidate" in question_lower
+        or "what is the candidate name" in question_lower
+        or "what is the name" in question_lower
+        or "who is the person" in question_lower
+    ):
+
+        # ---------------------------------------------
+        # Try PDF title
+        # ---------------------------------------------
+
+        title = get_pdf_title(
+            pdf_content
+        )
+
+        if (
+            title
+            and title != "Unknown PDF"
+            and not title.lower().endswith(".pdf")
+        ):
+
+            return title
+
+
+        # ---------------------------------------------
+        # Try first meaningful line
+        # ---------------------------------------------
+
+        lines = [
+            line.strip()
+            for line in pdf_content.splitlines()
+            if line.strip()
+        ]
+
+        if lines:
+
+            first_line = lines[0]
+
+            # Avoid returning generic section headings
+            invalid_names = {
+                "resume",
+                "curriculum vitae",
+                "cv",
+                "summary",
+                "profile",
+                "contact"
+            }
+
+            if first_line.lower() not in invalid_names:
+
+                return first_line
+
+
+        # ---------------------------------------------
+        # Common name pattern
+        # ---------------------------------------------
+
+        name_match = re.search(
+            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
+            pdf_content
+        )
+
+        if name_match:
+
+            return name_match.group(1)
+
+
     return ""
+
+
+# =====================================================
+# SECTION-AWARE PDF SEARCH
+# =====================================================
+
+def find_section_content(
+    question,
+    pdf_content
+):
+
+    if not question:
+        return ""
+
+    if not pdf_content:
+        return ""
+
+    question_lower = question.lower().strip()
+
+
+    # =================================================
+    # SECTION KEYWORDS
+    # =================================================
+
+    section_keywords = {
+
+        "skills": [
+            "skill",
+            "skills",
+            "technical skill",
+            "technical skills",
+            "skill set",
+            "technologies",
+            "programming skills",
+            "what can the candidate do"
+        ],
+
+        "tools": [
+            "tools",
+            "tools know",
+            "tools does",
+            "software",
+            "platforms",
+            "software tools"
+        ],
+
+        "education": [
+            "education",
+            "educational background",
+            "education background",
+            "degree",
+            "qualification",
+            "academic background"
+        ],
+
+        "experience": [
+            "experience",
+            "work experience",
+            "professional experience",
+            "internship",
+            "internships"
+        ],
+
+        "projects": [
+            "project",
+            "projects",
+            "projects listed",
+            "projects included",
+            "project experience"
+        ],
+
+        "certifications": [
+            "certification",
+            "certifications",
+            "certificate",
+            "certificates"
+        ]
+    }
+
+
+    # =================================================
+    # FIND MATCHED SECTION
+    # =================================================
+
+    matched_section = None
+
+    for section, keywords in section_keywords.items():
+
+        for keyword in keywords:
+
+            if keyword in question_lower:
+
+                matched_section = section
+
+                break
+
+        if matched_section:
+
+            break
+
+
+    if not matched_section:
+
+        return ""
+
+
+    # =================================================
+    # SECTION HEADINGS
+    # =================================================
+
+    section_patterns = {
+
+        "skills": [
+            r"^skills$",
+            r"^technical\s+skills$",
+            r"^technical\s+skill$",
+            r"^skill\s+set$"
+        ],
+
+        "tools": [
+            r"^tools$",
+            r"^tools\s*&\s*platforms$",
+            r"^tools\s+and\s+platforms$"
+        ],
+
+        "education": [
+            r"^education$",
+            r"^educational\s+background$",
+            r"^academic\s+background$"
+        ],
+
+        "experience": [
+            r"^experience$",
+            r"^work\s+experience$",
+            r"^professional\s+experience$"
+        ],
+
+        "projects": [
+            r"^projects$",
+            r"^project\s+experience$"
+        ],
+
+        "certifications": [
+            r"^certifications?$",
+            r"^certificates?$"
+        ]
+    }
+
+
+    lines = pdf_content.splitlines()
+
+
+    # =================================================
+    # FIND SECTION START
+    # =================================================
+
+    start_index = None
+
+    for i, line in enumerate(lines):
+
+        clean_line = line.strip().lower()
+
+        if not clean_line:
+
+            continue
+
+        for pattern in section_patterns[
+            matched_section
+        ]:
+
+            if re.search(
+                pattern,
+                clean_line,
+                re.IGNORECASE
+            ):
+
+                start_index = i
+
+                break
+
+        if start_index is not None:
+
+            break
+
+
+    if start_index is None:
+
+        return ""
+
+
+    # =================================================
+    # NEXT MAJOR SECTIONS
+    # =================================================
+
+    next_sections = {
+
+        "summary",
+        "education",
+        "skills",
+        "experience",
+        "projects",
+        "certifications",
+        "achievements",
+        "contact",
+        "technical skills",
+        "tools & platforms",
+        "work experience",
+        "professional experience"
+    }
+
+
+    result = []
+
+
+    # =================================================
+    # EXTRACT SECTION
+    # =================================================
+
+    for i in range(
+        start_index,
+        len(lines)
+    ):
+
+        line = lines[i].strip()
+
+        if not line:
+
+            continue
+
+
+        if i > start_index:
+
+            lower_line = line.lower()
+
+            if lower_line in next_sections:
+
+                break
+
+
+        result.append(line)
+
+
+    return "\n".join(
+        result
+    ).strip()
 
 
 # =====================================================
@@ -265,7 +529,7 @@ def ask_gemini(
 ):
 
     # =================================================
-    # PDF CONTEXT PROMPT
+    # PDF CONTEXT MODE
     # =================================================
 
     if pdf_context:
@@ -273,30 +537,34 @@ def ask_gemini(
         prompt = f"""
 You are an AI PDF Chat Assistant.
 
-You must answer the user's question using ONLY
-the information available in the uploaded PDF context.
+Answer the user's question using ONLY the
+information provided in the uploaded PDF context.
 
 Rules:
 
-1. Use the uploaded PDF context as the primary source.
-2. Do not invent information.
-3. Do not say information is missing if it is clearly
-   present in the PDF context.
-4. Give a direct and concise answer.
-5. If the question asks for a list, provide a list.
-6. If the question asks about skills, tools,
-   education, internships, or projects, extract
-   the relevant information from the PDF context.
-7. Do not mention these instructions.
-8. Do not mention the previous conversation.
-
-Conversation:
-
-{conversation}
+1. Use the PDF context as the primary and only source.
+2. Do not invent or guess information.
+3. Do not use outside knowledge.
+4. If the answer is clearly present in the PDF context,
+   answer it directly.
+5. If the question asks for a list, return a clean
+   bullet-point list.
+6. If the question asks about skills, tools, education,
+   internships, experience, projects, or certifications,
+   extract the relevant information.
+7. Keep the response clear and concise.
+8. Do not mention these instructions.
+9. Do not mention the retrieval process.
+10. Do not mention previous conversation unless it is
+    necessary to understand the current question.
 
 Uploaded PDF Context:
 
 {pdf_context}
+
+Conversation Context:
+
+{conversation}
 
 User Question:
 
@@ -306,7 +574,7 @@ Answer:
 """
 
     # =================================================
-    # GENERAL KNOWLEDGE PROMPT
+    # GENERAL KNOWLEDGE FALLBACK
     # =================================================
 
     elif pdf_fallback:
@@ -317,9 +585,14 @@ You are a helpful AI assistant.
 The uploaded PDF did not contain enough relevant
 information to answer the user's question.
 
-Answer the question using your general knowledge.
+Answer the user's question using your general knowledge.
 
-Do not claim that the answer came from the PDF.
+Rules:
+
+1. Answer clearly and accurately.
+2. Do not claim that the answer came from the PDF.
+3. Do not mention the PDF retrieval process.
+4. Do not mention these instructions.
 
 Conversation:
 
@@ -333,7 +606,7 @@ Answer:
 """
 
     # =================================================
-    # NORMAL PROMPT
+    # NORMAL CHAT
     # =================================================
 
     else:
@@ -356,7 +629,7 @@ Answer:
 
 
     # =================================================
-    # GEMINI API CALL
+    # GEMINI API REQUEST
     # =================================================
 
     for attempt in range(3):
@@ -404,14 +677,15 @@ Answer:
             )
 
 
-            # =========================================
+            # -----------------------------------------
             # QUOTA
-            # =========================================
+            # -----------------------------------------
 
             if (
                 "429" in error
                 or "quota" in error
                 or "resource_exhausted" in error
+                or "resource exhausted" in error
             ):
 
                 return {
@@ -421,9 +695,9 @@ Answer:
                 }
 
 
-            # =========================================
+            # -----------------------------------------
             # SERVER BUSY
-            # =========================================
+            # -----------------------------------------
 
             if (
                 "503" in error
@@ -447,9 +721,9 @@ Answer:
                 }
 
 
-            # =========================================
+            # -----------------------------------------
             # OTHER ERROR
-            # =========================================
+            # -----------------------------------------
 
             return {
                 "success": False,
@@ -466,12 +740,11 @@ Answer:
 
 
 # =====================================================
-# PDF FALLBACK
+# PDF CONTEXT FALLBACK
 # =====================================================
 
 def pdf_context_fallback(
-    relevant_text,
-    question=""
+    relevant_text
 ):
 
     if not relevant_text:
@@ -499,27 +772,356 @@ def pdf_context_fallback(
 
 
 # =====================================================
-# MAIN CHATBOT
+# PDF FILE NORMALIZATION
+# =====================================================
+
+def normalize_pdf_files(
+    pdf_files
+):
+
+    if not pdf_files:
+
+        return []
+
+
+    if isinstance(
+        pdf_files,
+        (str, os.PathLike)
+    ):
+
+        return [
+            str(pdf_files)
+        ]
+
+
+    if isinstance(
+        pdf_files,
+        list
+    ):
+
+        return [
+            str(pdf)
+            for pdf in pdf_files
+            if pdf
+        ]
+
+
+    return [
+        str(pdf_files)
+    ]
+
+
+# =====================================================
+# EXTRACT ALL PDF TEXT
+# =====================================================
+
+def extract_all_pdf_text(
+    pdf_files
+):
+
+    combined_text = ""
+
+
+    for pdf in pdf_files:
+
+        try:
+
+            text = extract_pdf_text(
+                pdf
+            )
+
+            text = clean_pdf_text(
+                text
+            )
+
+            if text:
+
+                combined_text += (
+                    "\n\n"
+                    f"========== "
+                    f"{os.path.basename(pdf)} "
+                    f"==========\n\n"
+                    f"{text}"
+                )
+
+
+        except Exception as e:
+
+            print(
+                f"PDF Extraction Error "
+                f"({pdf}):",
+                e
+            )
+
+
+    return combined_text.strip()
+
+
+# =====================================================
+# PDF STATISTICS
+# =====================================================
+
+def get_pdf_statistics(
+    pdf_files
+):
+
+    result = []
+
+
+    for pdf in pdf_files:
+
+        try:
+
+            text = clean_pdf_text(
+                extract_pdf_text(pdf)
+            )
+
+            reader = PdfReader(
+                pdf
+            )
+
+            size_kb = round(
+                os.path.getsize(pdf)
+                / 1024,
+                2
+            )
+
+
+            result.append(
+                f"""📄 {os.path.basename(pdf)}
+
+Title: {get_pdf_title(text)}
+
+Pages: {len(reader.pages)}
+
+Words: {len(text.split())}
+
+Characters: {len(text)}
+
+Size: {size_kb} KB"""
+            )
+
+
+        except Exception as e:
+
+            print(
+                "PDF Statistics Error:",
+                e
+            )
+
+
+    return "\n\n".join(
+        result
+    )
+
+
+# =====================================================
+# SIMPLE PDF METADATA QUERY
+# =====================================================
+
+def handle_pdf_metadata_query(
+    question,
+    pdf_files
+):
+
+    question_lower = question.lower()
+
+
+    # =================================================
+    # PDF SIZE
+    # =================================================
+
+    if (
+        "pdf size" in question_lower
+        or "file size" in question_lower
+    ):
+
+        result = []
+
+
+        for pdf in pdf_files:
+
+            try:
+
+                size_kb = round(
+                    os.path.getsize(pdf)
+                    / 1024,
+                    2
+                )
+
+                result.append(
+                    f"📄 {os.path.basename(pdf)}: "
+                    f"{size_kb} KB"
+                )
+
+            except Exception:
+
+                continue
+
+
+        if result:
+
+            return "\n".join(
+                result
+            )
+
+
+    # =================================================
+    # WORD COUNT
+    # =================================================
+
+    if (
+        "word count" in question_lower
+        or "number of words" in question_lower
+        or "how many words" in question_lower
+    ):
+
+        result = []
+
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(
+                pdf
+            )
+
+            result.append(
+                f"📄 {os.path.basename(pdf)}: "
+                f"{len(text.split())} words"
+            )
+
+
+        return "\n".join(
+            result
+        )
+
+
+    # =================================================
+    # CHARACTER COUNT
+    # =================================================
+
+    if (
+        "character count" in question_lower
+        or "number of characters" in question_lower
+        or "how many characters" in question_lower
+    ):
+
+        result = []
+
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(
+                pdf
+            )
+
+            result.append(
+                f"📄 {os.path.basename(pdf)}: "
+                f"{len(text)} characters"
+            )
+
+
+        return "\n".join(
+            result
+        )
+
+
+    # =================================================
+    # PAGE COUNT
+    # =================================================
+
+    if (
+        "how many pages" in question_lower
+        or "page count" in question_lower
+    ):
+
+        result = []
+
+
+        for pdf in pdf_files:
+
+            reader = PdfReader(
+                pdf
+            )
+
+            result.append(
+                f"📄 {os.path.basename(pdf)}: "
+                f"{len(reader.pages)} pages"
+            )
+
+
+        return "\n".join(
+            result
+        )
+
+
+    # =================================================
+    # PDF TITLE / NAME
+    # =================================================
+
+    if (
+        "pdf title" in question_lower
+        or "pdf name" in question_lower
+    ):
+
+        result = []
+
+
+        for pdf in pdf_files:
+
+            text = extract_pdf_text(
+                pdf
+            )
+
+            result.append(
+                f"📄 {os.path.basename(pdf)}: "
+                f"{get_pdf_title(text)}"
+            )
+
+
+        return "\n".join(
+            result
+        )
+
+
+    # =================================================
+    # PDF STATS
+    # =================================================
+
+    if "pdf stats" in question_lower:
+
+        return get_pdf_statistics(
+            pdf_files
+        )
+
+
+    return ""
+
+
+# =====================================================
+# CHATBOT
 # =====================================================
 
 def chatbot(
     message,
     history=None,
-    pdf_file=None
+    pdf_files=None
 ):
 
     # =================================================
-    # VALIDATE QUESTION
+    # VALIDATE MESSAGE
     # =================================================
+
+    message = (
+        message or ""
+    ).strip()
+
 
     if not message:
 
         return (
             "Please enter a question."
         )
-
-
-    message = message.strip()
 
 
     # =================================================
@@ -543,33 +1145,25 @@ def chatbot(
 
 
     # =================================================
-    # NORMALIZE PDF FILE INPUT
+    # NORMALIZE PDF FILES
     # =================================================
 
-    if isinstance(pdf_file, list):
-
-        if len(pdf_file) == 0:
-
-            pdf_file = None
-
-        else:
-
-            # Gradio returns a list when multiple PDF upload is enabled.
-            # For now, use the first uploaded PDF.
-            pdf_file = pdf_file[0]
+    pdf_files = normalize_pdf_files(
+        pdf_files
+    )
 
 
     # =================================================
-    # NO PDF
+    # NO PDF MODE
     # =================================================
 
-    if not pdf_file:
+    if not pdf_files:
 
         result = ask_gemini(
             message=message,
             pdf_context="",
             conversation=conversation,
-            pdf_fallback=True
+            pdf_fallback=False
         )
 
 
@@ -612,7 +1206,7 @@ def chatbot(
 
 
     # =================================================
-    # EXTRACT PDF TEXT
+    # EXTRACT PDF CONTENT
     # =================================================
 
     print(
@@ -620,17 +1214,12 @@ def chatbot(
     )
 
     print(
-        "CHATBOT PDF EXTRACTION STARTED"
+        "PDF CHATBOT STARTED"
     )
 
     print(
-        "PDF FILE AFTER NORMALIZATION:",
-        pdf_file
-    )
-
-    print(
-        "PDF FILE TYPE:",
-        type(pdf_file)
+        "PDF FILES:",
+        pdf_files
     )
 
     print(
@@ -638,87 +1227,10 @@ def chatbot(
     )
 
 
-    try:
-
-        pdf_content = extract_pdf_text(
-            pdf_file
-        )
-
-
-    except Exception as e:
-
-        print(
-            "PDF Extraction Error:",
-            e
-        )
-
-        pdf_content = ""
-
-
-    # =================================================
-    # CLEAN PDF TEXT
-    # =================================================
-
-    pdf_content = clean_pdf_text(
-        pdf_content
+    pdf_content = extract_all_pdf_text(
+        pdf_files
     )
 
-
-    # =================================================
-    # DEBUG PDF EXTRACTION RESULT
-    # =================================================
-
-    print(
-        "=" * 60
-    )
-
-    print(
-        "CHATBOT EXTRACTED TEXT LENGTH:",
-        len(pdf_content)
-    )
-
-    print(
-        "CHATBOT PDF PREVIEW:"
-    )
-
-    print(
-        pdf_content[:2000]
-    )
-
-    print(
-        "=" * 60
-    )
-    # =================================================
-    # PDF EXTRACTION DEBUG
-    # =================================================
-
-    print(
-        "=" * 60
-    )
-
-    print(
-        "CHATBOT EXTRACTED TEXT LENGTH:",
-        len(pdf_content)
-    )
-
-    print(
-        "CHATBOT PDF PREVIEW:"
-    )
-
-    print(
-        pdf_content[
-            :1000
-        ]
-    )
-
-    print(
-        "=" * 60
-    )
-
-
-    # =================================================
-    # PDF EMPTY
-    # =================================================
 
     if not pdf_content:
 
@@ -728,8 +1240,75 @@ def chatbot(
         )
 
 
+    print(
+        "EXTRACTED PDF TEXT LENGTH:",
+        len(pdf_content)
+    )
+
+
     # =================================================
-    # DIRECT PDF FACT SEARCH
+    # PDF SUMMARY
+    # =================================================
+
+    question_lower = message.lower()
+
+
+    if any(
+        keyword in question_lower
+        for keyword in [
+            "summarize",
+            "summarise",
+            "summary",
+            "brief summary",
+            "give me an overview",
+            "overview of the pdf"
+        ]
+    ):
+
+        try:
+
+            answer = summarize_pdf(
+                pdf_files
+            )
+
+            save_session(
+                message,
+                answer
+            )
+
+            return answer
+
+
+        except Exception as e:
+
+            print(
+                "PDF Summary Error:",
+                e
+            )
+
+
+    # =================================================
+    # PDF METADATA
+    # =================================================
+
+    metadata_answer = handle_pdf_metadata_query(
+        message,
+        pdf_files
+    )
+
+
+    if metadata_answer:
+
+        save_session(
+            message,
+            metadata_answer
+        )
+
+        return metadata_answer
+
+
+    # =================================================
+    # DIRECT FACT SEARCH
     # =================================================
 
     direct_answer = find_direct_pdf_answer(
@@ -745,31 +1324,37 @@ def chatbot(
             + direct_answer
         )
 
+
         save_session(
             message,
             answer
         )
 
+
         return answer
 
 
     # =================================================
-    # KEYWORD SEARCH
+    # SECTION-AWARE SEARCH
     # =================================================
 
-    try:
+    section_text = find_section_content(
+        message,
+        pdf_content
+    )
 
-        relevant_text = find_relevant_text(
-            message,
-            pdf_content
-        )
 
-    except Exception as e:
+    if section_text:
 
         print(
-            "Keyword Search Error:",
-            e
+            "SECTION SEARCH FOUND"
         )
+
+
+        relevant_text = section_text
+
+
+    else:
 
         relevant_text = ""
 
@@ -778,95 +1363,74 @@ def chatbot(
     # SEMANTIC SEARCH
     # =================================================
 
-    try:
+    if not relevant_text:
 
-        index, chunks = build_index(
-            pdf_content
-        )
+        try:
 
-
-        semantic_text = semantic_search(
-            message,
-            index,
-            chunks,
-            top_k=SEMANTIC_TOP_K,
-            min_score=SEMANTIC_MIN_SCORE
-        )
+            index, chunks = build_index(
+                pdf_content
+            )
 
 
-    except Exception as e:
-
-        print(
-            "Semantic Search Error:",
-            e
-        )
-
-        semantic_text = ""
-
-
-    # =================================================
-    # COMBINE RESULTS
-    # =================================================
-
-    combined_results = []
+            relevant_text = semantic_search(
+                message,
+                index,
+                chunks,
+                top_k=SEMANTIC_TOP_K,
+                min_score=SEMANTIC_MIN_SCORE
+            )
 
 
-    if relevant_text:
+        except Exception as e:
 
-        combined_results.append(
-            relevant_text
-        )
+            print(
+                "Semantic Search Error:",
+                e
+            )
 
-
-    if semantic_text:
-
-        combined_results.append(
-            semantic_text
-        )
+            relevant_text = ""
 
 
     # =================================================
-    # REMOVE DUPLICATES
+    # KEYWORD SEARCH
     # =================================================
 
-    unique_results = []
+    if not relevant_text:
 
-    seen_text = set()
+        try:
 
+            # IMPORTANT:
+            # pdf_search.py expects:
+            #
+            # find_relevant_text(
+            #     pdf_text,
+            #     question
+            # )
 
-    for result in combined_results:
-
-        result = result.strip()
-
-        if not result:
-            continue
-
-
-        result_key = result[:500]
-
-
-        if result_key in seen_text:
-            continue
+            relevant_text = find_relevant_text(
+                pdf_content,
+                message
+            )
 
 
-        seen_text.add(
-            result_key
-        )
+        except Exception as e:
 
+            print(
+                "Keyword Search Error:",
+                e
+            )
 
-        unique_results.append(
-            result
-        )
-
-
-    relevant_text = "\n\n".join(
-        unique_results
-    )
+            relevant_text = ""
 
 
     # =================================================
     # LIMIT CONTEXT
     # =================================================
+
+    if relevant_text:
+
+        relevant_text = relevant_text.strip()
+
 
     if len(relevant_text) > MAX_PDF_CONTEXT:
 
@@ -876,44 +1440,50 @@ def chatbot(
 
 
     # =================================================
-    # PDF INFORMATION FOUND
+    # DEBUG
     # =================================================
 
-    if relevant_text.strip():
+    print(
+        "=" * 60
+    )
 
-        print(
-            "=" * 60
-        )
+    print(
+        "USER QUESTION:",
+        message
+    )
 
-        print(
-            "PDF CONTEXT FOUND"
-        )
+    print(
+        "RELEVANT PDF CONTEXT:"
+    )
 
-        print(
-            relevant_text[
-                :2000
-            ]
-        )
+    print(
+        relevant_text[:2000]
+        if relevant_text
+        else "NOT FOUND"
+    )
 
-        print(
-            "=" * 60
-        )
+    print(
+        "=" * 60
+    )
 
 
-        # =============================================
-        # ASK GEMINI
-        # =============================================
+    # =================================================
+    # PDF CONTEXT FOUND
+    # =================================================
+
+    if relevant_text:
 
         result = ask_gemini(
             message=message,
             pdf_context=relevant_text,
-            conversation=conversation
+            conversation=conversation,
+            pdf_fallback=False
         )
 
 
-        # =============================================
+        # ---------------------------------------------
         # GEMINI SUCCESS
-        # =============================================
+        # ---------------------------------------------
 
         if result["success"]:
 
@@ -922,65 +1492,70 @@ def chatbot(
                 + result["answer"]
             )
 
+
             save_session(
                 message,
                 answer
             )
 
+
             return answer
 
 
-        # =============================================
+        # ---------------------------------------------
         # GEMINI QUOTA
-        # =============================================
+        # ---------------------------------------------
 
         if result["error_type"] == "quota":
 
             answer = pdf_context_fallback(
-                relevant_text,
-                message
+                relevant_text
             )
+
 
             save_session(
                 message,
                 answer
             )
 
+
             return answer
 
 
-        # =============================================
+        # ---------------------------------------------
         # GEMINI BUSY
-        # =============================================
+        # ---------------------------------------------
 
         if result["error_type"] == "busy":
 
             answer = pdf_context_fallback(
-                relevant_text,
-                message
+                relevant_text
             )
+
 
             save_session(
                 message,
                 answer
             )
 
+
             return answer
 
 
-        # =============================================
-        # OTHER GEMINI ERROR
-        # =============================================
+        # ---------------------------------------------
+        # OTHER ERROR
+        # ---------------------------------------------
 
         answer = pdf_context_fallback(
-            relevant_text,
-            message
+            relevant_text
         )
+
 
         save_session(
             message,
             answer
         )
+
 
         return answer
 
@@ -990,20 +1565,7 @@ def chatbot(
     # =================================================
 
     print(
-        "=" * 60
-    )
-
-    print(
         "PDF INFORMATION NOT FOUND"
-    )
-
-    print(
-        "QUESTION:",
-        message
-    )
-
-    print(
-        "=" * 60
     )
 
 
@@ -1026,10 +1588,12 @@ def chatbot(
             + result["answer"]
         )
 
+
         save_session(
             message,
             answer
         )
+
 
         return answer
 

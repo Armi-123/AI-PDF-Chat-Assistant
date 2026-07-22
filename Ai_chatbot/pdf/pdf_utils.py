@@ -21,13 +21,18 @@ def get_pdf_path(pdf_file):
     """
     Convert different Gradio/Python file inputs
     into a usable PDF file path.
+
+    Supported:
+    - String path
+    - Gradio file object
+    - Dictionary file object
     """
 
     if pdf_file is None:
         return None
 
     # -------------------------------------------------
-    # Normal string path
+    # String path
     # -------------------------------------------------
 
     if isinstance(pdf_file, str):
@@ -38,7 +43,12 @@ def get_pdf_path(pdf_file):
     # -------------------------------------------------
 
     if hasattr(pdf_file, "name"):
-        return pdf_file.name
+
+        try:
+            return pdf_file.name
+
+        except Exception:
+            pass
 
     # -------------------------------------------------
     # Dictionary-style file object
@@ -46,10 +56,10 @@ def get_pdf_path(pdf_file):
 
     if isinstance(pdf_file, dict):
 
-        if "path" in pdf_file:
+        if pdf_file.get("path"):
             return pdf_file["path"]
 
-        if "name" in pdf_file:
+        if pdf_file.get("name"):
             return pdf_file["name"]
 
     return None
@@ -62,33 +72,33 @@ def get_pdf_path(pdf_file):
 def clean_pdf_text(text):
     """
     Clean extracted PDF text while preserving
-    useful line structure.
+    useful line and paragraph structure.
     """
 
     if not text:
         return ""
 
     # Normalize line endings
-    text = text.replace(
-        "\r\n",
-        "\n"
-    )
+    text = text.replace("\r\n", "\n")
+    text = text.replace("\r", "\n")
 
-    text = text.replace(
-        "\r",
-        "\n"
-    )
+    # Normalize tabs
+    text = text.replace("\t", " ")
 
-    # Replace tabs
-    text = text.replace(
-        "\t",
-        " "
-    )
+    # Remove invisible/null characters
+    text = text.replace("\x00", "")
 
-    # Remove excessive spaces
+    # Normalize spaces inside lines
     text = re.sub(
         r"[ ]{2,}",
         " ",
+        text
+    )
+
+    # Remove spaces before newlines
+    text = re.sub(
+        r"[ ]+\n",
+        "\n",
         text
     )
 
@@ -108,45 +118,109 @@ def clean_pdf_text(text):
 
 def get_pdf_title(pdf_text):
     """
-    Get a meaningful title/name from extracted PDF text.
+    Extract a meaningful title from PDF text.
+
+    For resumes, attempts to identify the candidate's
+    name from the first meaningful lines.
     """
 
     if not pdf_text:
         return "Unknown PDF"
 
-    lines = pdf_text.splitlines()
+    pdf_text = clean_pdf_text(pdf_text)
 
-    for line in lines:
+    if not pdf_text:
+        return "Unknown PDF"
 
-        line = line.strip()
+    lines = [
+        line.strip()
+        for line in pdf_text.splitlines()
+        if line.strip()
+    ]
 
-        if not line:
+    if not lines:
+        return "Unknown PDF"
+
+    # =================================================
+    # RESUME / CV NAME DETECTION
+    # =================================================
+
+    for line in lines[:15]:
+
+        lower_line = line.lower()
+
+        # Skip obvious section headings
+        ignored_headings = {
+            "resume",
+            "cv",
+            "curriculum vitae",
+            "summary",
+            "education",
+            "skills",
+            "experience",
+            "projects",
+            "certifications",
+            "contact",
+        }
+
+        if lower_line in ignored_headings:
             continue
 
-        # Ignore very short lines
-        if len(line) < 3:
+        # Skip lines containing contact information
+        if "@" in line:
             continue
 
-        # Ignore page numbers
-        if line.isdigit():
-            continue
-
-        # Ignore email-only lines
-        if re.fullmatch(
-            r"[\w\.-]+@[\w\.-]+\.\w+",
-            line
+        if re.search(
+            r"(linkedin|github|http://|https://)",
+            lower_line
         ):
             continue
 
-        # Ignore phone-only lines
+        # Skip phone-only lines
         if re.fullmatch(
             r"[\d\s\+\-\(\)]+",
             line
         ):
             continue
 
-        # Ignore PDF filename
+        # Skip PDF filenames
+        if lower_line.endswith(".pdf"):
+            continue
+
+        # -------------------------------------------------
+        # Candidate name pattern
+        # -------------------------------------------------
+
+        name_match = re.fullmatch(
+            r"[A-Za-z]+(?:[\s]+[A-Za-z]+){1,4}",
+            line
+        )
+
+        if name_match:
+
+            words = line.split()
+
+            # Avoid treating long sentences as names
+            if 2 <= len(words) <= 5:
+
+                return line
+
+    # =================================================
+    # FALLBACK
+    # =================================================
+
+    for line in lines:
+
+        if len(line) < 3:
+            continue
+
+        if line.isdigit():
+            continue
+
         if line.lower().endswith(".pdf"):
+            continue
+
+        if "@" in line:
             continue
 
         return line
@@ -155,25 +229,52 @@ def get_pdf_title(pdf_text):
 
 
 # =====================================================
+# CREATE CACHE KEY
+# =====================================================
+
+def _get_cache_key(pdf_path):
+
+    try:
+
+        file_size = os.path.getsize(
+            pdf_path
+        )
+
+        modified_time = os.path.getmtime(
+            pdf_path
+        )
+
+        return (
+            pdf_path,
+            file_size,
+            modified_time
+        )
+
+    except Exception:
+
+        return pdf_path
+
+
+# =====================================================
 # EXTRACT TEXT FROM PDF
 # =====================================================
 
 def extract_pdf_text(pdf_file):
     """
-    Extract text from a PDF file.
+    Extract text from a PDF.
 
     Supports:
-    - Gradio file path
     - String file path
     - Gradio file object
     - Dictionary file object
 
-    Uses OCR if normal PDF text extraction fails.
+    Uses OCR only when normal extraction
+    produces little or no useful text.
     """
 
-    # -------------------------------------------------
+    # =================================================
     # GET REAL FILE PATH
-    # -------------------------------------------------
+    # =================================================
 
     pdf_path = get_pdf_path(
         pdf_file
@@ -187,10 +288,9 @@ def extract_pdf_text(pdf_file):
 
         return ""
 
-
-    # -------------------------------------------------
+    # =================================================
     # CHECK FILE EXISTS
-    # -------------------------------------------------
+    # =================================================
 
     if not os.path.exists(
         pdf_path
@@ -206,35 +306,17 @@ def extract_pdf_text(pdf_file):
 
         return ""
 
+    # =================================================
+    # CACHE KEY
+    # =================================================
 
-    # -------------------------------------------------
-    # CREATE CACHE KEY
-    # -------------------------------------------------
+    cache_key = _get_cache_key(
+        pdf_path
+    )
 
-    try:
-
-        file_size = os.path.getsize(
-            pdf_path
-        )
-
-        modified_time = os.path.getmtime(
-            pdf_path
-        )
-
-        cache_key = (
-            pdf_path,
-            file_size,
-            modified_time
-        )
-
-    except Exception:
-
-        cache_key = pdf_path
-
-
-    # -------------------------------------------------
-    # RETURN CACHED TEXT
-    # -------------------------------------------------
+    # =================================================
+    # RETURN CACHE
+    # =================================================
 
     if cache_key in pdf_cache:
 
@@ -253,14 +335,11 @@ def extract_pdf_text(pdf_file):
 
         return cached_text
 
+    # =================================================
+    # DEBUG
+    # =================================================
 
-    # -------------------------------------------------
-    # DEBUG INFORMATION
-    # -------------------------------------------------
-
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     print(
         "PDF EXTRACTION STARTED"
@@ -276,22 +355,24 @@ def extract_pdf_text(pdf_file):
         os.path.exists(pdf_path)
     )
 
-    print(
-        "FILE SIZE:",
-        os.path.getsize(pdf_path),
-        "bytes"
-    )
+    try:
 
-    print(
-        "=" * 60
-    )
+        print(
+            "FILE SIZE:",
+            os.path.getsize(pdf_path),
+            "bytes"
+        )
 
+    except Exception:
+        pass
 
-    # -------------------------------------------------
+    print("=" * 60)
+
+    # =================================================
     # NORMAL PDF EXTRACTION
-    # -------------------------------------------------
+    # =================================================
 
-    extracted_text = ""
+    extracted_pages = []
 
     try:
 
@@ -304,7 +385,6 @@ def extract_pdf_text(pdf_file):
             len(reader.pages)
         )
 
-
         for page_number, page in enumerate(
             reader.pages,
             start=1
@@ -316,15 +396,20 @@ def extract_pdf_text(pdf_file):
 
                 if page_text:
 
+                    page_text = clean_pdf_text(
+                        page_text
+                    )
+
                     print(
                         f"Page {page_number}: "
                         f"{len(page_text)} characters"
                     )
 
-                    extracted_text += (
-                        page_text
-                        + "\n"
-                    )
+                    if page_text:
+
+                        extracted_pages.append(
+                            page_text
+                        )
 
                 else:
 
@@ -341,7 +426,6 @@ def extract_pdf_text(pdf_file):
                     page_error
                 )
 
-
     except Exception as e:
 
         print(
@@ -349,26 +433,26 @@ def extract_pdf_text(pdf_file):
             e
         )
 
+    # =================================================
+    # COMBINE PAGES
+    # =================================================
 
-    # -------------------------------------------------
-    # CLEAN EXTRACTED TEXT
-    # -------------------------------------------------
+    extracted_text = "\n\n".join(
+        extracted_pages
+    )
 
     extracted_text = clean_pdf_text(
         extracted_text
     )
 
+    # =================================================
+    # DEBUG
+    # =================================================
 
-    # -------------------------------------------------
-    # DEBUG EXTRACTION RESULT
-    # -------------------------------------------------
-
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     print(
-        "PDF EXTRACTION RESULT"
+        "NORMAL PDF EXTRACTION RESULT"
     )
 
     print(
@@ -381,19 +465,17 @@ def extract_pdf_text(pdf_file):
     )
 
     print(
-        extracted_text[
-            :2000
-        ]
+        extracted_text[:2000]
     )
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
-
-    # -------------------------------------------------
+    # =================================================
     # OCR FALLBACK
-    # -------------------------------------------------
+    # =================================================
+
+    # Only use OCR if extracted text is too short.
+    # This avoids unnecessary OCR processing.
 
     if len(extracted_text) < 100:
 
@@ -405,22 +487,17 @@ def extract_pdf_text(pdf_file):
             "Trying OCR fallback..."
         )
 
-
         try:
 
             ocr_text = extract_text_ocr(
                 pdf_path
             )
 
-
             ocr_text = clean_pdf_text(
                 ocr_text
             )
 
-
-            print(
-                "=" * 60
-            )
+            print("=" * 60)
 
             print(
                 "OCR EXTRACTION RESULT"
@@ -436,22 +513,19 @@ def extract_pdf_text(pdf_file):
             )
 
             print(
-                ocr_text[
-                    :2000
-                ]
+                ocr_text[:2000]
             )
 
-            print(
-                "=" * 60
-            )
+            print("=" * 60)
 
+            # Use OCR only when it produces
+            # more useful content.
 
             if len(ocr_text) > len(
                 extracted_text
             ):
 
                 extracted_text = ocr_text
-
 
         except Exception as ocr_error:
 
@@ -460,32 +534,27 @@ def extract_pdf_text(pdf_file):
                 ocr_error
             )
 
-
-    # -------------------------------------------------
+    # =================================================
     # FINAL CLEANING
-    # -------------------------------------------------
+    # =================================================
 
     extracted_text = clean_pdf_text(
         extracted_text
     )
 
-
-    # -------------------------------------------------
+    # =================================================
     # SAVE CACHE
-    # -------------------------------------------------
+    # =================================================
 
     pdf_cache[
         cache_key
     ] = extracted_text
 
-
-    # -------------------------------------------------
+    # =================================================
     # FINAL DEBUG
-    # -------------------------------------------------
+    # =================================================
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     print(
         "FINAL PDF TEXT LENGTH:",
@@ -504,10 +573,7 @@ def extract_pdf_text(pdf_file):
             "PDF TEXT EXTRACTION FAILED"
         )
 
-    print(
-        "=" * 60
-    )
-
+    print("=" * 60)
 
     return extracted_text
 
