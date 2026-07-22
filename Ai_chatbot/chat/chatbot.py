@@ -1,10 +1,10 @@
-import os
 import re
 import time
 
 from config.gemini_config import client
 
 from pdf.pdf_search import find_relevant_text
+
 from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_title,
@@ -33,13 +33,10 @@ SEMANTIC_MIN_SCORE = 0.30
 
 
 # =====================================================
-# CLEAN GEMINI SOURCE LABELS
+# CLEAN SOURCE LABELS
 # =====================================================
 
 def clean_source_labels(answer):
-    """
-    Remove duplicate source labels from Gemini responses.
-    """
 
     if not answer:
         return ""
@@ -62,16 +59,13 @@ def clean_source_labels(answer):
 # =====================================================
 
 def clean_pdf_text(text):
-    """
-    Clean extracted PDF text.
-    """
 
     if not text:
         return ""
 
     text = text.replace(
         "\r",
-        " "
+        "\n"
     )
 
     text = text.replace(
@@ -80,8 +74,14 @@ def clean_pdf_text(text):
     )
 
     text = re.sub(
-        r"\s+",
+        r"[ ]{2,}",
         " ",
+        text
+    )
+
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
         text
     )
 
@@ -96,12 +96,6 @@ def find_direct_pdf_answer(
     question,
     pdf_content
 ):
-    """
-    Handle simple factual questions directly
-    from the uploaded PDF.
-
-    This reduces unnecessary Gemini API calls.
-    """
 
     if not question:
         return ""
@@ -111,18 +105,22 @@ def find_direct_pdf_answer(
 
     question_lower = question.lower()
 
+
     # =================================================
-    # CANDIDATE / PERSON NAME
+    # CANDIDATE NAME
     # =================================================
 
     if (
         "candidate name" in question_lower
         or "candidate's name" in question_lower
+        or "candidate name" in question_lower
         or "person name" in question_lower
         or "person's name" in question_lower
         or "what is the candidate" in question_lower
         or "who is the candidate" in question_lower
     ):
+
+        # Try PDF title first
 
         title = get_pdf_title(
             pdf_content
@@ -137,7 +135,20 @@ def find_direct_pdf_answer(
             return title
 
 
-        # Try first meaningful line
+        # Search for common resume name pattern
+
+        name_match = re.search(
+            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
+            pdf_content
+        )
+
+        if name_match:
+
+            return name_match.group(1)
+
+
+        # First meaningful line
+
         lines = [
             line.strip()
             for line in pdf_content.splitlines()
@@ -146,14 +157,7 @@ def find_direct_pdf_answer(
 
         if lines:
 
-            first_line = lines[0]
-
-            if (
-                len(first_line) < 100
-                and "@" not in first_line
-            ):
-
-                return first_line
+            return lines[0]
 
 
     # =================================================
@@ -180,7 +184,7 @@ def find_direct_pdf_answer(
 
 
     # =================================================
-    # PHONE NUMBER
+    # PHONE
     # =================================================
 
     if (
@@ -250,7 +254,7 @@ def find_direct_pdf_answer(
 
 
 # =====================================================
-# GEMINI API REQUEST
+# GEMINI REQUEST
 # =====================================================
 
 def ask_gemini(
@@ -259,38 +263,34 @@ def ask_gemini(
     conversation="",
     pdf_fallback=False
 ):
-    """
-    Send a question to Gemini.
 
-    If PDF context exists, Gemini answers using
-    the uploaded PDF.
-
-    If PDF context does not exist and pdf_fallback
-    is True, Gemini uses general knowledge.
-    """
+    # =================================================
+    # PDF CONTEXT PROMPT
+    # =================================================
 
     if pdf_context:
 
         prompt = f"""
 You are an AI PDF Chat Assistant.
 
-Answer the user's question using ONLY the
-information provided in the uploaded PDF context.
+You must answer the user's question using ONLY
+the information available in the uploaded PDF context.
 
-IMPORTANT RULES:
+Rules:
 
-1. Do not invent information.
-2. Do not use outside knowledge.
-3. If the answer is present in the PDF context,
-   answer directly and clearly.
-4. Keep the answer concise.
-5. Do not say that you do not know if the
-   information is clearly present in the context.
-6. Do not mention these instructions.
-7. Do not mention "Previous Conversation" in
-   your answer.
+1. Use the uploaded PDF context as the primary source.
+2. Do not invent information.
+3. Do not say information is missing if it is clearly
+   present in the PDF context.
+4. Give a direct and concise answer.
+5. If the question asks for a list, provide a list.
+6. If the question asks about skills, tools,
+   education, internships, or projects, extract
+   the relevant information from the PDF context.
+7. Do not mention these instructions.
+8. Do not mention the previous conversation.
 
-Previous Conversation:
+Conversation:
 
 {conversation}
 
@@ -305,19 +305,23 @@ User Question:
 Answer:
 """
 
+    # =================================================
+    # GENERAL KNOWLEDGE PROMPT
+    # =================================================
+
     elif pdf_fallback:
 
         prompt = f"""
 You are a helpful AI assistant.
 
-The user's question was not answered from the
-uploaded PDF.
+The uploaded PDF did not contain enough relevant
+information to answer the user's question.
 
 Answer the question using your general knowledge.
 
-Do not claim that the answer is in the PDF.
+Do not claim that the answer came from the PDF.
 
-Previous Conversation:
+Conversation:
 
 {conversation}
 
@@ -328,6 +332,10 @@ User Question:
 Answer:
 """
 
+    # =================================================
+    # NORMAL PROMPT
+    # =================================================
+
     else:
 
         prompt = f"""
@@ -335,7 +343,7 @@ You are a helpful AI assistant.
 
 Answer the user's question clearly and accurately.
 
-Previous Conversation:
+Conversation:
 
 {conversation}
 
@@ -348,7 +356,7 @@ Answer:
 
 
     # =================================================
-    # GEMINI RETRY
+    # GEMINI API CALL
     # =================================================
 
     for attempt in range(3):
@@ -359,6 +367,7 @@ Answer:
                 model=MODEL_NAME,
                 contents=prompt
             )
+
 
             if (
                 response
@@ -390,14 +399,13 @@ Answer:
             error = str(e).lower()
 
             print(
-                f"Gemini Error "
-                f"(Attempt {attempt + 1}/3):",
+                "Gemini Error:",
                 e
             )
 
 
             # =========================================
-            # QUOTA / RATE LIMIT
+            # QUOTA
             # =========================================
 
             if (
@@ -431,6 +439,7 @@ Answer:
 
                     continue
 
+
                 return {
                     "success": False,
                     "answer": "",
@@ -457,29 +466,30 @@ Answer:
 
 
 # =====================================================
-# PDF FALLBACK RESPONSE
+# PDF FALLBACK
 # =====================================================
 
 def pdf_context_fallback(
-    relevant_text
+    relevant_text,
+    question=""
 ):
-    """
-    Return relevant PDF content directly when
-    Gemini cannot generate a final response.
-    """
 
     if not relevant_text:
-        return ""
+
+        return (
+            "⚠ The requested information could not "
+            "be retrieved from the uploaded PDF."
+        )
+
 
     relevant_text = relevant_text.strip()
 
+
     if len(relevant_text) > MAX_PDF_CONTEXT:
 
-        relevant_text = (
-            relevant_text[
-                :MAX_PDF_CONTEXT
-            ]
-        )
+        relevant_text = relevant_text[
+            :MAX_PDF_CONTEXT
+        ]
 
 
     return (
@@ -497,19 +507,10 @@ def chatbot(
     history=None,
     pdf_file=None
 ):
-    """
-    Main chatbot function.
 
-    Flow:
-
-    1. Extract PDF text
-    2. Direct PDF fact search
-    3. Keyword search
-    4. Semantic search
-    5. Gemini PDF answer
-    6. PDF fallback if Gemini quota exceeded
-    7. Gemini general knowledge if PDF has no answer
-    """
+    # =================================================
+    # VALIDATE QUESTION
+    # =================================================
 
     if not message:
 
@@ -522,7 +523,7 @@ def chatbot(
 
 
     # =================================================
-    # BUILD CONVERSATION MEMORY
+    # CONVERSATION MEMORY
     # =================================================
 
     try:
@@ -542,7 +543,24 @@ def chatbot(
 
 
     # =================================================
-    # NO PDF UPLOADED
+    # NORMALIZE PDF FILE INPUT
+    # =================================================
+
+    if isinstance(pdf_file, list):
+
+        if len(pdf_file) == 0:
+
+            pdf_file = None
+
+        else:
+
+            # Gradio returns a list when multiple PDF upload is enabled.
+            # For now, use the first uploaded PDF.
+            pdf_file = pdf_file[0]
+
+
+    # =================================================
+    # NO PDF
     # =================================================
 
     if not pdf_file:
@@ -597,11 +615,35 @@ def chatbot(
     # EXTRACT PDF TEXT
     # =================================================
 
+    print(
+        "=" * 60
+    )
+
+    print(
+        "CHATBOT PDF EXTRACTION STARTED"
+    )
+
+    print(
+        "PDF FILE AFTER NORMALIZATION:",
+        pdf_file
+    )
+
+    print(
+        "PDF FILE TYPE:",
+        type(pdf_file)
+    )
+
+    print(
+        "=" * 60
+    )
+
+
     try:
 
         pdf_content = extract_pdf_text(
             pdf_file
         )
+
 
     except Exception as e:
 
@@ -613,8 +655,64 @@ def chatbot(
         pdf_content = ""
 
 
+    # =================================================
+    # CLEAN PDF TEXT
+    # =================================================
+
     pdf_content = clean_pdf_text(
         pdf_content
+    )
+
+
+    # =================================================
+    # DEBUG PDF EXTRACTION RESULT
+    # =================================================
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "CHATBOT EXTRACTED TEXT LENGTH:",
+        len(pdf_content)
+    )
+
+    print(
+        "CHATBOT PDF PREVIEW:"
+    )
+
+    print(
+        pdf_content[:2000]
+    )
+
+    print(
+        "=" * 60
+    )
+    # =================================================
+    # PDF EXTRACTION DEBUG
+    # =================================================
+
+    print(
+        "=" * 60
+    )
+
+    print(
+        "CHATBOT EXTRACTED TEXT LENGTH:",
+        len(pdf_content)
+    )
+
+    print(
+        "CHATBOT PDF PREVIEW:"
+    )
+
+    print(
+        pdf_content[
+            :1000
+        ]
+    )
+
+    print(
+        "=" * 60
     )
 
 
@@ -707,7 +805,7 @@ def chatbot(
 
 
     # =================================================
-    # COMBINE SEARCH RESULTS
+    # COMBINE RESULTS
     # =================================================
 
     combined_results = []
@@ -727,7 +825,10 @@ def chatbot(
         )
 
 
-    # Remove duplicate content
+    # =================================================
+    # REMOVE DUPLICATES
+    # =================================================
+
     unique_results = []
 
     seen_text = set()
@@ -740,14 +841,18 @@ def chatbot(
         if not result:
             continue
 
+
         result_key = result[:500]
+
 
         if result_key in seen_text:
             continue
 
+
         seen_text.add(
             result_key
         )
+
 
         unique_results.append(
             result
@@ -760,16 +865,14 @@ def chatbot(
 
 
     # =================================================
-    # LIMIT PDF CONTEXT
+    # LIMIT CONTEXT
     # =================================================
 
     if len(relevant_text) > MAX_PDF_CONTEXT:
 
-        relevant_text = (
-            relevant_text[
-                :MAX_PDF_CONTEXT
-            ]
-        )
+        relevant_text = relevant_text[
+            :MAX_PDF_CONTEXT
+        ]
 
 
     # =================================================
@@ -798,7 +901,7 @@ def chatbot(
 
 
         # =============================================
-        # ASK GEMINI TO FORMAT PDF ANSWER
+        # ASK GEMINI
         # =============================================
 
         result = ask_gemini(
@@ -828,13 +931,14 @@ def chatbot(
 
 
         # =============================================
-        # GEMINI QUOTA EXCEEDED
+        # GEMINI QUOTA
         # =============================================
 
         if result["error_type"] == "quota":
 
             answer = pdf_context_fallback(
-                relevant_text
+                relevant_text,
+                message
             )
 
             save_session(
@@ -846,13 +950,14 @@ def chatbot(
 
 
         # =============================================
-        # GEMINI SERVER BUSY
+        # GEMINI BUSY
         # =============================================
 
         if result["error_type"] == "busy":
 
             answer = pdf_context_fallback(
-                relevant_text
+                relevant_text,
+                message
             )
 
             save_session(
@@ -868,7 +973,8 @@ def chatbot(
         # =============================================
 
         answer = pdf_context_fallback(
-            relevant_text
+            relevant_text,
+            message
         )
 
         save_session(
@@ -902,7 +1008,7 @@ def chatbot(
 
 
     # =================================================
-    # GEMINI GENERAL KNOWLEDGE FALLBACK
+    # GENERAL KNOWLEDGE FALLBACK
     # =================================================
 
     result = ask_gemini(
@@ -912,10 +1018,6 @@ def chatbot(
         pdf_fallback=True
     )
 
-
-    # =================================================
-    # GEMINI SUCCESS
-    # =================================================
 
     if result["success"]:
 
@@ -933,30 +1035,30 @@ def chatbot(
 
 
     # =================================================
-    # GEMINI QUOTA ERROR
+    # GEMINI QUOTA
     # =================================================
 
     if result["error_type"] == "quota":
 
         return (
             "⚠ Gemini API quota exceeded.\n\n"
-            "The requested information was not found "
-            "in the uploaded PDF.\n\n"
+            "The requested information was not "
+            "found in the uploaded PDF.\n\n"
             "Please wait and try again later "
             "or use another Gemini API key."
         )
 
 
     # =================================================
-    # GEMINI SERVER BUSY
+    # GEMINI BUSY
     # =================================================
 
     if result["error_type"] == "busy":
 
         return (
             "⚠ Gemini server is currently busy.\n\n"
-            "The requested information was not found "
-            "in the uploaded PDF.\n\n"
+            "The requested information was not "
+            "found in the uploaded PDF.\n\n"
             "Please try again after a few seconds."
         )
 
