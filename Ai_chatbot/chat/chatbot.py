@@ -1312,8 +1312,9 @@ def chatbot(
     # =================================================
 
     direct_answer = find_direct_pdf_answer(
+        pdf_content,
         message,
-        pdf_content
+        pdf_files[0] if pdf_files else None
     )
 
 

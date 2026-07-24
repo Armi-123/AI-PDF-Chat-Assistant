@@ -1,17 +1,13 @@
 import re
 from difflib import SequenceMatcher
 
-
-# =====================================================
-# CONFIGURATION
-# =====================================================
-
-MAX_RESULTS = 3
-MAX_RESULT_LENGTH = 8000
+from pdf.pdf_utils import (
+    extract_pdf_links,
+)
 
 
 # =====================================================
-# TEXT SIMILARITY
+# SIMILARITY
 # =====================================================
 
 def similarity(a, b):
@@ -30,41 +26,28 @@ def similarity(a, b):
 
 
 # =====================================================
-# CLEAN TEXT
+# NORMALIZE TEXT
 # =====================================================
 
-def clean_search_text(text):
+def normalize_pdf_text(text):
     """
-    Clean PDF text while preserving useful
-    line and paragraph structure.
+    Normalize PDF text for searching.
     """
 
     if not text:
         return ""
 
     text = text.replace(
-        "\r\n",
-        "\n"
-    )
-
-    text = text.replace(
         "\r",
         "\n"
     )
 
-    text = text.replace(
-        "\t",
-        " "
-    )
-
-    # Remove excessive spaces
     text = re.sub(
-        r"[ ]{2,}",
+        r"[ \t]+",
         " ",
         text
     )
 
-    # Remove excessive blank lines
     text = re.sub(
         r"\n{3,}",
         "\n\n",
@@ -80,7 +63,7 @@ def clean_search_text(text):
 
 def normalize_question(question):
     """
-    Normalize user question for better matching.
+    Normalize user question.
     """
 
     if not question:
@@ -89,49 +72,11 @@ def normalize_question(question):
     question = question.lower().strip()
 
     replacements = {
-
         "powerbi": "power bi",
-
         "power-bi": "power bi",
-
-        "power bi": "power bi",
-
-        "machine learning":
-            "machine learning",
-
-        "ml":
-            "machine learning",
-
-        "artificial intelligence":
-            "artificial intelligence",
-
-        "ai":
-            "artificial intelligence",
-
-        "database":
-            "database",
-
-        "db":
-            "database",
-
-        "technologies":
-            "technology",
-
-        "tools":
-            "tool",
-
-        "skills":
-            "skill",
-
-        "internships":
-            "internship",
-
-        "projects":
-            "project",
-
-        "certifications":
-            "certification",
-
+        "ml": "machine learning",
+        "ai": "artificial intelligence",
+        "db": "database",
     }
 
     for old, new in replacements.items():
@@ -150,7 +95,6 @@ def normalize_question(question):
 # =====================================================
 
 STOP_WORDS = {
-
     "what",
     "is",
     "the",
@@ -168,7 +112,6 @@ STOP_WORDS = {
     "in",
     "on",
     "for",
-    "to",
     "tell",
     "me",
     "pdf",
@@ -190,332 +133,668 @@ STOP_WORDS = {
     "list",
     "explain",
     "candidate",
+    "candidates",
     "person",
+    "profile",
     "mentioned",
     "included",
     "listed",
-    "know",
 }
 
 
 # =====================================================
-# QUESTION KEYWORDS
+# DIRECT QUESTION TYPE
 # =====================================================
 
-def extract_question_keywords(question):
+def detect_direct_query(question):
     """
-    Extract meaningful keywords from the question.
+    Detect important direct PDF questions.
+
+    Returns:
+    - email
+    - phone
+    - linkedin
+    - github
+    - certifications
+    - name
+    - None
     """
 
-    words = re.findall(
-        r"[a-zA-Z0-9]+",
-        question.lower()
+    q = normalize_question(
+        question
     )
 
-    keywords = []
+    # Email
+    if any(
+        phrase in q
+        for phrase in [
+            "email",
+            "email address",
+            "email id",
+            "mail id",
+            "mail address",
+        ]
+    ):
+        return "email"
 
-    for word in words:
+    # Phone
+    if any(
+        phrase in q
+        for phrase in [
+            "phone",
+            "phone number",
+            "mobile",
+            "mobile number",
+            "contact number",
+            "contact no",
+            "telephone",
+        ]
+    ):
+        return "phone"
 
-        if word in STOP_WORDS:
-            continue
+    # LinkedIn
+    if "linkedin" in q:
+        return "linkedin"
 
-        if len(word) <= 2:
-            continue
+    # GitHub
+    if (
+        "github" in q
+        or "git hub" in q
+    ):
+        return "github"
 
-        if word not in keywords:
+    # Certifications
+    if any(
+        phrase in q
+        for phrase in [
+            "certification",
+            "certifications",
+            "certificate",
+            "certificates",
+        ]
+    ):
+        return "certifications"
 
-            keywords.append(
-                word
-            )
-
-    return keywords
-
-
-# =====================================================
-# SECTION DETECTION
-# =====================================================
-
-SECTION_ALIASES = {
-
-    "skills": [
-
-        "skills",
-        "technical skills",
-        "skill",
-        "technologies",
-        "programming skills",
-        "technical skill",
-    ],
-
-    "tools": [
-
-        "tools",
-        "tools platforms",
-        "tools & platforms",
-        "tools and platforms",
-        "software tools",
-        "platforms",
-    ],
-
-    "education": [
-
-        "education",
-        "educational background",
-        "academic background",
-        "degree",
-        "qualification",
-    ],
-
-    "experience": [
-
-        "experience",
-        "work experience",
-        "professional experience",
-        "internship",
-        "internships",
-    ],
-
-    "projects": [
-
-        "projects",
-        "project",
-        "project experience",
-        "projects included",
-        "projects listed",
-    ],
-
-    "certifications": [
-
-        "certifications",
-        "certification",
-        "certificates",
-        "certificate",
-    ],
-
-    "summary": [
-
-        "summary",
-        "profile",
-        "professional summary",
-        "objective",
-    ],
-}
-
-
-# =====================================================
-# DETECT TARGET SECTION
-# =====================================================
-
-def detect_target_section(question):
-    """
-    Detect whether the question is asking about
-    a specific PDF section.
-    """
-
-    question = question.lower()
-
-    # Tools should be checked before skills
-    # because tools questions may also contain
-    # words such as "skills".
-
-    for section in [
-        "tools",
-        "education",
-        "projects",
-        "experience",
-        "certifications",
-        "skills",
-        "summary",
-    ]:
-
-        for keyword in SECTION_ALIASES[section]:
-
-            if keyword in question:
-
-                return section
+    # Name
+    if (
+        "candidate name" in q
+        or "candidate's name" in q
+        or "person name" in q
+        or "person's name" in q
+        or "what is the name" in q
+        or "who is the candidate" in q
+        or "who is the person" in q
+    ):
+        return "name"
 
     return None
 
 
 # =====================================================
-# FIND SECTION BOUNDARIES
+# EMAIL SEARCH
 # =====================================================
 
-def find_section_content(
-    pdf_text,
-    target_section
-):
+def find_email(pdf_text):
     """
-    Extract content belonging to a specific
-    PDF section.
+    Find email addresses in PDF text.
     """
 
     if not pdf_text:
         return ""
 
-    if not target_section:
+    emails = re.findall(
+        r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+        pdf_text
+    )
+
+    unique = []
+
+    seen = set()
+
+    for email in emails:
+
+        email = email.strip()
+
+        if email.lower() not in seen:
+
+            seen.add(
+                email.lower()
+            )
+
+            unique.append(
+                email
+            )
+
+    return "\n".join(
+        unique
+    )
+
+
+# =====================================================
+# PHONE SEARCH
+# =====================================================
+
+def find_phone(pdf_text):
+    """
+    Find Indian and international phone numbers.
+
+    Supports formats such as:
+
+    (+91) 70968 70759
+    +91 70968 70759
+    +91-7096870759
+    70968 70759
+    7096870759
+    """
+
+    if not pdf_text:
         return ""
 
-    lines = pdf_text.splitlines()
+    patterns = [
+
+        # (+91) 70968 70759
+        r"\(\s*\+91\s*\)\s*\d{5}\s*\d{5}",
+
+        # +91 70968 70759
+        r"\+91[\s-]*\d{5}[\s-]*\d{5}",
+
+        # +91-7096870759
+        r"\+91[\s-]*[6-9]\d{9}",
+
+        # 70968 70759
+        r"\b[6-9]\d{4}[\s-]\d{5}\b",
+
+        # 7096870759
+        r"\b[6-9]\d{9}\b",
+    ]
+
+    found = []
+
+    for pattern in patterns:
+
+        matches = re.findall(
+            pattern,
+            pdf_text
+        )
+
+        for phone in matches:
+
+            phone = phone.strip()
+
+            # Normalize spaces
+            phone = re.sub(
+                r"\s+",
+                " ",
+                phone
+            )
+
+            if phone not in found:
+
+                found.append(
+                    phone
+                )
+
+    return "\n".join(
+        found
+    )
+
+
+# =====================================================
+# LINK SEARCH
+# =====================================================
+
+def find_social_links(
+    pdf_file,
+    pdf_text=""
+):
+    """
+    Find LinkedIn and GitHub URLs.
+
+    Priority:
+    1. Hidden PDF hyperlink annotations
+    2. Visible URLs inside extracted text
+    """
+
+    result = {
+        "linkedin": [],
+        "github": [],
+    }
+
+    # =================================================
+    # HIDDEN PDF LINKS
+    # =================================================
+
+    try:
+
+        pdf_links = extract_pdf_links(
+            pdf_file
+        )
+
+        result["linkedin"].extend(
+            pdf_links.get(
+                "linkedin",
+                []
+            )
+        )
+
+        result["github"].extend(
+            pdf_links.get(
+                "github",
+                []
+            )
+        )
+
+    except Exception as e:
+
+        print(
+            "Social Link Extraction Error:",
+            e
+        )
+
+    # =================================================
+    # VISIBLE URL SEARCH
+    # =================================================
+
+    urls = re.findall(
+        r"https?://[^\s<>\"]+",
+        pdf_text or "",
+        re.IGNORECASE
+    )
+
+    for url in urls:
+
+        url = url.rstrip(
+            ".,;:!?)]}>"
+        )
+
+        lower_url = url.lower()
+
+        if "linkedin.com" in lower_url:
+
+            if url not in result[
+                "linkedin"
+            ]:
+
+                result[
+                    "linkedin"
+                ].append(
+                    url
+                )
+
+        elif "github.com" in lower_url:
+
+            if url not in result[
+                "github"
+            ]:
+
+                result[
+                    "github"
+                ].append(
+                    url
+                )
+
+    return result
+
+
+# =====================================================
+# NAME SEARCH
+# =====================================================
+
+def find_candidate_name(pdf_text):
+    """
+    Extract candidate name from the beginning
+    of resume text.
+    """
+
+    if not pdf_text:
+        return ""
+
+    lines = [
+        line.strip()
+        for line in pdf_text.splitlines()
+        if line.strip()
+    ]
+
+    ignored = {
+        "resume",
+        "cv",
+        "curriculum vitae",
+        "summary",
+        "profile",
+        "contact",
+        "education",
+        "skills",
+        "experience",
+        "projects",
+        "certifications",
+    }
+
+    # Check first 15 lines
+    for line in lines[:15]:
+
+        lower = line.lower()
+
+        if lower in ignored:
+            continue
+
+        if "@" in line:
+            continue
+
+        if "linkedin" in lower:
+            continue
+
+        if "github" in lower:
+            continue
+
+        if "http://" in lower:
+            continue
+
+        if "https://" in lower:
+            continue
+
+        # Skip phone/contact line
+        if re.search(
+            r"\d{5}\s*\d{5}",
+            line
+        ):
+            continue
+
+        # Name-like pattern
+        if re.fullmatch(
+            r"[A-Za-z]+(?:\s+[A-Za-z]+){1,4}",
+            line
+        ):
+
+            words = line.split()
+
+            if 2 <= len(words) <= 5:
+
+                return line
+
+    return ""
+
+
+# =====================================================
+# CERTIFICATION SEARCH
+# =====================================================
+
+def find_certifications(pdf_text):
+    """
+    Find certification section.
+
+    If the PDF does not contain a certification
+    section or certification content, return an
+    explicit message.
+    """
+
+    if not pdf_text:
+
+        return (
+            "No certifications are mentioned "
+            "in the uploaded PDF."
+        )
+
+    lines = [
+        line.strip()
+        for line in pdf_text.splitlines()
+        if line.strip()
+    ]
+
+    certification_heading_patterns = [
+
+        r"^certifications?$",
+
+        r"^certificates?$",
+
+        r"^professional certifications?$",
+
+        r"^certification[s]?\s*&\s*licenses?$",
+
+    ]
 
     start_index = None
 
-    # -------------------------------------------------
-    # Find section start
-    # -------------------------------------------------
+    for i, line in enumerate(lines):
 
-    for index, line in enumerate(lines):
+        lower_line = line.lower()
 
-        clean_line = line.strip().lower()
+        for pattern in certification_heading_patterns:
 
-        if not clean_line:
-            continue
-
-        for alias in SECTION_ALIASES[
-            target_section
-        ]:
-
-            alias = alias.lower()
-
-            # Exact heading
-            if clean_line == alias:
-
-                start_index = index
-
-                break
-
-            # Heading with colon
-            if clean_line.startswith(
-                alias + ":"
+            if re.fullmatch(
+                pattern,
+                lower_line,
+                re.IGNORECASE
             ):
 
-                start_index = index
+                start_index = i
 
                 break
 
         if start_index is not None:
-
             break
 
+    # No certification section
     if start_index is None:
 
-        return ""
-
-    # -------------------------------------------------
-    # Major section headings
-    # -------------------------------------------------
-
-    all_sections = []
-
-    for aliases in SECTION_ALIASES.values():
-
-        all_sections.extend(
-            aliases
+        return (
+            "No certifications are mentioned "
+            "in the uploaded PDF."
         )
 
-    # -------------------------------------------------
-    # Collect section content
-    # -------------------------------------------------
+    # =================================================
+    # EXTRACT SECTION
+    # =================================================
+
+    next_sections = {
+        "summary",
+        "education",
+        "skills",
+        "experience",
+        "projects",
+        "achievements",
+        "contact",
+    }
 
     result = []
 
-    for index in range(
-        start_index,
+    for i in range(
+        start_index + 1,
         len(lines)
     ):
 
-        line = lines[index].strip()
+        line = lines[i].strip()
 
         if not line:
             continue
 
-        # Skip original heading?
-        # Keep it because Gemini understands
-        # the context better.
+        if line.lower() in next_sections:
 
-        if index > start_index:
-
-            lower_line = line.lower()
-
-            is_next_section = False
-
-            for section_name in all_sections:
-
-                section_name = section_name.lower()
-
-                if (
-                    lower_line == section_name
-                    or lower_line.startswith(
-                        section_name + ":"
-                    )
-                ):
-
-                    is_next_section = True
-
-                    break
-
-            if is_next_section:
-
-                break
+            break
 
         result.append(
             line
         )
 
+    if not result:
+
+        return (
+            "No certifications are mentioned "
+            "in the uploaded PDF."
+        )
+
     return "\n".join(
         result
-    ).strip()
+    )
 
 
 # =====================================================
-# BUILD SEARCH CHUNKS
+# DIRECT PDF SEARCH
 # =====================================================
 
-def build_chunks(pdf_text):
+def find_direct_pdf_answer(
+    pdf_text,
+    question,
+    pdf_file=None
+):
     """
-    Split PDF text into searchable chunks.
+    Search direct factual questions from PDF.
+
+    Returns:
+    - Exact direct answer when found
+    - Explicit certification message
+    - Empty string when not found
     """
 
-    if not pdf_text:
-        return []
+    if not question:
+        return ""
+
+    pdf_text = normalize_pdf_text(
+        pdf_text
+    )
+
+    query_type = detect_direct_query(
+        question
+    )
+
+    # =================================================
+    # EMAIL
+    # =================================================
+
+    if query_type == "email":
+
+        return find_email(
+            pdf_text
+        )
+
+    # =================================================
+    # PHONE
+    # =================================================
+
+    if query_type == "phone":
+
+        return find_phone(
+            pdf_text
+        )
+
+    # =================================================
+    # LINKEDIN
+    # =================================================
+
+    if query_type == "linkedin":
+
+        links = find_social_links(
+            pdf_file,
+            pdf_text
+        )
+
+        if links["linkedin"]:
+
+            return "\n".join(
+                links["linkedin"]
+            )
+
+        return ""
+
+    # =================================================
+    # GITHUB
+    # =================================================
+
+    if query_type == "github":
+
+        links = find_social_links(
+            pdf_file,
+            pdf_text
+        )
+
+        if links["github"]:
+
+            return "\n".join(
+                links["github"]
+            )
+
+        return ""
+
+    # =================================================
+    # CERTIFICATIONS
+    # =================================================
+
+    if query_type == "certifications":
+
+        return find_certifications(
+            pdf_text
+        )
+
+    # =================================================
+    # NAME
+    # =================================================
+
+    if query_type == "name":
+
+        return find_candidate_name(
+            pdf_text
+        )
+
+    return ""
+
+
+# =====================================================
+# GENERIC KEYWORD SEARCH
+# =====================================================
+
+def find_relevant_text(
+    pdf_text,
+    question
+):
+    """
+    Find relevant PDF chunks for general questions.
+
+    Used after direct factual searches.
+    """
+
+    pdf_text = normalize_pdf_text(
+        pdf_text
+    )
+
+    question = normalize_question(
+        question
+    )
+
+    if not pdf_text or not question:
+        return ""
+
+    # -------------------------------------------------
+    # Split PDF into chunks
+    # -------------------------------------------------
+
+    chunks = []
 
     paragraphs = pdf_text.split(
         "\n\n"
     )
 
-    chunks = []
+    for para in paragraphs:
 
-    # -------------------------------------------------
-    # Paragraph chunks
-    # -------------------------------------------------
+        para = para.strip()
 
-    for paragraph in paragraphs:
-
-        paragraph = paragraph.strip()
-
-        if len(paragraph) >= 40:
+        if len(para) > 40:
 
             chunks.append(
-                paragraph
+                para
             )
 
     # -------------------------------------------------
-    # Fallback line chunks
+    # Fallback chunks
     # -------------------------------------------------
 
     if len(chunks) < 5:
 
         lines = [
-
             line.strip()
-
             for line in pdf_text.splitlines()
-
             if line.strip()
-
         ]
 
-        chunk_size = 12
+        chunk_size = 15
 
         chunks = []
 
@@ -537,257 +816,111 @@ def build_chunks(pdf_text):
                     chunk
                 )
 
-    return chunks
+    if not chunks:
+        return ""
 
+    # -------------------------------------------------
+    # Question words
+    # -------------------------------------------------
 
-# =====================================================
-# SCORE CHUNK
-# =====================================================
-
-def score_chunk(
-    chunk,
-    question,
-    keywords,
-    target_section=None
-):
-    """
-    Calculate relevance score for a PDF chunk.
-    """
-
-    if not chunk:
-        return 0
-
-    text = chunk.lower()
-
-    score = 0
-
-    # =================================================
-    # EXACT QUESTION
-    # =================================================
-
-    if question and question in text:
-
-        score += 40
-
-    # =================================================
-    # KEYWORDS
-    # =================================================
-
-    matched_keywords = 0
-
-    for keyword in keywords:
-
-        if keyword in text:
-
-            score += 10
-
-            matched_keywords += 1
-
-        else:
-
-            # Fuzzy matching
-            tokens = re.findall(
-                r"\w+",
-                text
-            )
-
-            for token in tokens:
-
-                if similarity(
-                    keyword,
-                    token
-                ) >= 0.90:
-
-                    score += 3
-
-                    break
-
-    # =================================================
-    # MULTIPLE KEYWORD MATCH
-    # =================================================
-
-    if (
-        len(keywords) > 0
-        and matched_keywords == len(keywords)
-    ):
-
-        score += 25
-
-    # =================================================
-    # FIRST LINE / HEADING
-    # =================================================
-
-    first_line = (
-        chunk
-        .split("\n")[0]
-        .lower()
-    )
-
-    for keyword in keywords:
-
-        if keyword in first_line:
-
-            score += 15
-
-    # =================================================
-    # TARGET SECTION BONUS
-    # =================================================
-
-    if target_section:
-
-        section_keywords = (
-            SECTION_ALIASES[
-                target_section
-            ]
-        )
-
-        for section_keyword in section_keywords:
-
-            if section_keyword in text:
-
-                score += 20
-
-                break
-
-    # =================================================
-    # CONTENT BONUS
-    # =================================================
-
-    if any(
-        word in text
-        for word in [
-            "python",
-            "sql",
-            "machine learning",
-            "education",
-            "experience",
-            "project",
-            "skills",
-            "tools",
-        ]
-    ):
-
-        score += 2
-
-    return score
-
-
-# =====================================================
-# MAIN PDF SEARCH
-# =====================================================
-
-def find_relevant_text(
-    pdf_text,
-    question
-):
-    """
-    Find the most relevant text from PDF.
-
-    IMPORTANT:
-    Correct argument order is:
-
-        find_relevant_text(
-            pdf_text,
+    question_words = [
+        word
+        for word in re.findall(
+            r"\w+",
             question
         )
-
-    Returns:
-        Relevant PDF text
-        or empty string if nothing relevant found.
-    """
-
-    if not pdf_text:
-
-        return ""
-
-    if not question:
-
-        return ""
-
-    # =================================================
-    # CLEAN PDF
-    # =================================================
-
-    pdf_text = clean_search_text(
-        pdf_text
-    )
-
-    # =================================================
-    # NORMALIZE QUESTION
-    # =================================================
-
-    question = normalize_question(
-        question
-    )
-
-    # =================================================
-    # EXTRACT KEYWORDS
-    # =================================================
-
-    keywords = extract_question_keywords(
-        question
-    )
-
-    if not keywords:
-
-        return ""
-
-    # =================================================
-    # TARGET SECTION
-    # =================================================
-
-    target_section = detect_target_section(
-        question
-    )
-
-    # =================================================
-    # SECTION-AWARE SEARCH
-    # =================================================
-
-    if target_section:
-
-        section_text = find_section_content(
-            pdf_text,
-            target_section
+        if (
+            word not in STOP_WORDS
+            and len(word) > 1
         )
+    ]
 
-        if section_text:
-
-            return section_text[
-                :MAX_RESULT_LENGTH
-            ]
-
-    # =================================================
-    # BUILD CHUNKS
-    # =================================================
-
-    chunks = build_chunks(
-        pdf_text
-    )
-
-    if not chunks:
-
+    if not question_words:
         return ""
 
-    # =================================================
-    # SCORE CHUNKS
-    # =================================================
+    question_phrase = " ".join(
+        question_words
+    )
+
+    # -------------------------------------------------
+    # Score chunks
+    # -------------------------------------------------
 
     scored = []
 
     for chunk in chunks:
 
-        score = score_chunk(
+        text = chunk.lower()
 
-            chunk,
+        score = 0
 
-            question,
+        # Exact question
+        if question in text:
 
-            keywords,
+            score += 40
 
-            target_section
+        # Exact phrase
+        if (
+            question_phrase
+            and question_phrase in text
+        ):
 
+            score += 25
+
+        # Heading
+        first_line = (
+            chunk
+            .split("\n")[0]
+            .lower()
         )
+
+        if (
+            question_phrase
+            and question_phrase in first_line
+        ):
+
+            score += 30
+
+        # Keyword scoring
+        for word in question_words:
+
+            if word in text:
+
+                score += 8
+
+            else:
+
+                # Only compare against unique
+                # tokens to reduce unnecessary work
+
+                tokens = set(
+                    re.findall(
+                        r"\w+",
+                        text
+                    )
+                )
+
+                for token in tokens:
+
+                    if (
+                        similarity(
+                            word,
+                            token
+                        ) >= 0.90
+                    ):
+
+                        score += 3
+
+                        break
+
+        # Definition bonus
+        if "definition" in text:
+
+            score += 3
+
+        if "defined as" in text:
+
+            score += 3
 
         if score >= 10:
 
@@ -798,57 +931,48 @@ def find_relevant_text(
                 )
             )
 
-    # =================================================
-    # NOTHING FOUND
-    # =================================================
+    # -------------------------------------------------
+    # Nothing found
+    # -------------------------------------------------
 
     if not scored:
 
         return ""
 
-    # =================================================
-    # SORT
-    # =================================================
+    # -------------------------------------------------
+    # Sort
+    # -------------------------------------------------
 
     scored.sort(
-
-        key=lambda item:
-        item[0],
-
+        key=lambda x: x[0],
         reverse=True
-
     )
 
-    # =================================================
-    # RETURN BEST RESULTS
-    # =================================================
+    # -------------------------------------------------
+    # Return best chunks
+    # -------------------------------------------------
 
-    results = []
+    result = []
 
     used = set()
 
     for score, chunk in scored:
 
-        chunk_key = chunk.strip()
-
-        if chunk_key in used:
-
+        if chunk in used:
             continue
 
         used.add(
-            chunk_key
-        )
-
-        results.append(
             chunk
         )
 
-        if len(results) >= MAX_RESULTS:
+        result.append(
+            chunk
+        )
+
+        if len(result) >= 3:
 
             break
 
     return "\n\n".join(
-        results
-    )[
-        :MAX_RESULT_LENGTH
-    ]
+        result
+    )[:6000]

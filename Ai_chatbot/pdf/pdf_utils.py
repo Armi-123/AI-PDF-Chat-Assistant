@@ -12,6 +12,9 @@ from pdf.pdf_ocr import extract_text_ocr
 
 pdf_cache = {}
 
+# Separate cache for hyperlinks
+pdf_links_cache = {}
+
 
 # =====================================================
 # GET FILE PATH
@@ -26,6 +29,7 @@ def get_pdf_path(pdf_file):
     - String path
     - Gradio file object
     - Dictionary file object
+    - pathlib.Path
     """
 
     if pdf_file is None:
@@ -37,6 +41,13 @@ def get_pdf_path(pdf_file):
 
     if isinstance(pdf_file, str):
         return pdf_file
+
+    # -------------------------------------------------
+    # Path-like object
+    # -------------------------------------------------
+
+    if isinstance(pdf_file, os.PathLike):
+        return os.fspath(pdf_file)
 
     # -------------------------------------------------
     # Gradio file object
@@ -88,7 +99,7 @@ def clean_pdf_text(text):
     # Remove invisible/null characters
     text = text.replace("\x00", "")
 
-    # Normalize spaces inside lines
+    # Normalize excessive spaces
     text = re.sub(
         r"[ ]{2,}",
         " ",
@@ -113,6 +124,305 @@ def clean_pdf_text(text):
 
 
 # =====================================================
+# NORMALIZE URL
+# =====================================================
+
+def normalize_url(url):
+    """
+    Clean and normalize extracted PDF URLs.
+    """
+
+    if not url:
+        return ""
+
+    url = str(url).strip()
+
+    # Remove surrounding brackets
+    url = url.strip(
+        " <>[](){}\"'"
+    )
+
+    # Remove trailing punctuation
+    url = url.rstrip(
+        ".,;:!?)]}>"
+    )
+
+    return url
+
+
+# =====================================================
+# EXTRACT PDF HYPERLINKS
+# =====================================================
+
+def extract_pdf_links(pdf_file):
+    """
+    Extract hidden hyperlink URLs from PDF annotations.
+
+    This is important for resumes where the visible text
+    may only say:
+
+        LinkedIn
+        GitHub
+
+    while the actual URL is stored internally in the PDF.
+
+    Returns:
+
+    {
+        "linkedin": [...],
+        "github": [...],
+        "urls": [...]
+    }
+    """
+
+    pdf_path = get_pdf_path(
+        pdf_file
+    )
+
+    if not pdf_path:
+        return {
+            "linkedin": [],
+            "github": [],
+            "urls": []
+        }
+
+    if not os.path.exists(pdf_path):
+        return {
+            "linkedin": [],
+            "github": [],
+            "urls": []
+        }
+
+    cache_key = _get_cache_key(
+        pdf_path
+    )
+
+    if cache_key in pdf_links_cache:
+
+        return pdf_links_cache[
+            cache_key
+        ]
+
+    links = []
+
+    try:
+
+        reader = PdfReader(
+            pdf_path
+        )
+
+        for page_number, page in enumerate(
+            reader.pages,
+            start=1
+        ):
+
+            try:
+
+                annotations = page.get(
+                    "/Annots"
+                )
+
+                if not annotations:
+                    continue
+
+                for annotation_ref in annotations:
+
+                    try:
+
+                        annotation = (
+                            annotation_ref.get_object()
+                        )
+
+                        subtype = annotation.get(
+                            "/Subtype"
+                        )
+
+                        if str(subtype) != "/Link":
+                            continue
+
+                        action = annotation.get(
+                            "/A"
+                        )
+
+                        if not action:
+                            continue
+
+                        uri = action.get(
+                            "/URI"
+                        )
+
+                        if not uri:
+                            continue
+
+                        url = normalize_url(
+                            uri
+                        )
+
+                        if not url:
+                            continue
+
+                        links.append(
+                            {
+                                "url": url,
+                                "page": page_number
+                            }
+                        )
+
+                    except Exception as annotation_error:
+
+                        print(
+                            "PDF Link Annotation Error:",
+                            annotation_error
+                        )
+
+            except Exception as page_error:
+
+                print(
+                    f"PDF Link Extraction Error "
+                    f"Page {page_number}:",
+                    page_error
+                )
+
+    except Exception as e:
+
+        print(
+            "PDF Hyperlink Extraction Error:",
+            e
+        )
+
+    # -------------------------------------------------
+    # Remove duplicate URLs
+    # -------------------------------------------------
+
+    unique_urls = []
+
+    seen = set()
+
+    for item in links:
+
+        url = item["url"]
+
+        if url.lower() not in seen:
+
+            seen.add(
+                url.lower()
+            )
+
+            unique_urls.append(
+                item
+            )
+
+    # -------------------------------------------------
+    # Classify links
+    # -------------------------------------------------
+
+    linkedin_links = []
+
+    github_links = []
+
+    for item in unique_urls:
+
+        url = item["url"]
+
+        lower_url = url.lower()
+
+        if "linkedin.com" in lower_url:
+
+            linkedin_links.append(
+                url
+            )
+
+        elif "github.com" in lower_url:
+
+            github_links.append(
+                url
+            )
+
+    result = {
+        "linkedin": linkedin_links,
+        "github": github_links,
+        "urls": [
+            item["url"]
+            for item in unique_urls
+        ]
+    }
+
+    pdf_links_cache[
+        cache_key
+    ] = result
+
+    print(
+        "PDF HYPERLINKS FOUND:",
+        result
+    )
+
+    return result
+
+
+# =====================================================
+# GET LINKEDIN URL
+# =====================================================
+
+def get_linkedin_url(pdf_file):
+    """
+    Return the first LinkedIn URL found in PDF.
+    """
+
+    links = extract_pdf_links(
+        pdf_file
+    )
+
+    if links["linkedin"]:
+
+        return links[
+            "linkedin"
+        ][0]
+
+    return ""
+
+
+# =====================================================
+# GET GITHUB URL
+# =====================================================
+
+def get_github_url(pdf_file):
+    """
+    Return the first GitHub URL found in PDF.
+    """
+
+    links = extract_pdf_links(
+        pdf_file
+    )
+
+    if links["github"]:
+
+        return links[
+            "github"
+        ][0]
+
+    return ""
+
+
+# =====================================================
+# GET ALL URLS
+# =====================================================
+
+def get_pdf_urls(pdf_file):
+    """
+    Return all URLs found in the PDF.
+    """
+
+    links = extract_pdf_links(
+        pdf_file
+    )
+
+    return links.get(
+        "urls",
+        []
+    )
+
+
+# =====================================================
 # GET PDF TITLE
 # =====================================================
 
@@ -120,14 +430,16 @@ def get_pdf_title(pdf_text):
     """
     Extract a meaningful title from PDF text.
 
-    For resumes, attempts to identify the candidate's
-    name from the first meaningful lines.
+    For resumes, attempts to identify the
+    candidate's name.
     """
 
     if not pdf_text:
         return "Unknown PDF"
 
-    pdf_text = clean_pdf_text(pdf_text)
+    pdf_text = clean_pdf_text(
+        pdf_text
+    )
 
     if not pdf_text:
         return "Unknown PDF"
@@ -149,7 +461,6 @@ def get_pdf_title(pdf_text):
 
         lower_line = line.lower()
 
-        # Skip obvious section headings
         ignored_headings = {
             "resume",
             "cv",
@@ -166,30 +477,27 @@ def get_pdf_title(pdf_text):
         if lower_line in ignored_headings:
             continue
 
-        # Skip lines containing contact information
+        # Email
         if "@" in line:
             continue
 
+        # URLs
         if re.search(
             r"(linkedin|github|http://|https://)",
             lower_line
         ):
             continue
 
-        # Skip phone-only lines
+        # Phone-only
         if re.fullmatch(
             r"[\d\s\+\-\(\)]+",
             line
         ):
             continue
 
-        # Skip PDF filenames
+        # Filename
         if lower_line.endswith(".pdf"):
             continue
-
-        # -------------------------------------------------
-        # Candidate name pattern
-        # -------------------------------------------------
 
         name_match = re.fullmatch(
             r"[A-Za-z]+(?:[\s]+[A-Za-z]+){1,4}",
@@ -200,7 +508,6 @@ def get_pdf_title(pdf_text):
 
             words = line.split()
 
-            # Avoid treating long sentences as names
             if 2 <= len(words) <= 5:
 
                 return line
@@ -261,20 +568,17 @@ def _get_cache_key(pdf_path):
 
 def extract_pdf_text(pdf_file):
     """
-    Extract text from a PDF.
+    Extract text from PDF.
 
     Supports:
-    - String file path
+    - String path
     - Gradio file object
     - Dictionary file object
+    - pathlib.Path
 
     Uses OCR only when normal extraction
     produces little or no useful text.
     """
-
-    # =================================================
-    # GET REAL FILE PATH
-    # =================================================
 
     pdf_path = get_pdf_path(
         pdf_file
@@ -288,34 +592,23 @@ def extract_pdf_text(pdf_file):
 
         return ""
 
-    # =================================================
-    # CHECK FILE EXISTS
-    # =================================================
-
     if not os.path.exists(
         pdf_path
     ):
 
         print(
-            "PDF ERROR: File does not exist:"
-        )
-
-        print(
+            "PDF ERROR: File does not exist:",
             pdf_path
         )
 
         return ""
-
-    # =================================================
-    # CACHE KEY
-    # =================================================
 
     cache_key = _get_cache_key(
         pdf_path
     )
 
     # =================================================
-    # RETURN CACHE
+    # CACHE
     # =================================================
 
     if cache_key in pdf_cache:
@@ -326,11 +619,6 @@ def extract_pdf_text(pdf_file):
 
         print(
             "Using cached PDF text."
-        )
-
-        print(
-            "Cached Characters:",
-            len(cached_text)
         )
 
         return cached_text
@@ -350,16 +638,13 @@ def extract_pdf_text(pdf_file):
         pdf_path
     )
 
-    print(
-        "FILE EXISTS:",
-        os.path.exists(pdf_path)
-    )
-
     try:
 
         print(
             "FILE SIZE:",
-            os.path.getsize(pdf_path),
+            os.path.getsize(
+                pdf_path
+            ),
             "bytes"
         )
 
@@ -369,7 +654,7 @@ def extract_pdf_text(pdf_file):
     print("=" * 60)
 
     # =================================================
-    # NORMAL PDF EXTRACTION
+    # NORMAL EXTRACTION
     # =================================================
 
     extracted_pages = []
@@ -433,10 +718,6 @@ def extract_pdf_text(pdf_file):
             e
         )
 
-    # =================================================
-    # COMBINE PAGES
-    # =================================================
-
     extracted_text = "\n\n".join(
         extracted_pages
     )
@@ -446,36 +727,8 @@ def extract_pdf_text(pdf_file):
     )
 
     # =================================================
-    # DEBUG
-    # =================================================
-
-    print("=" * 60)
-
-    print(
-        "NORMAL PDF EXTRACTION RESULT"
-    )
-
-    print(
-        "Characters:",
-        len(extracted_text)
-    )
-
-    print(
-        "Preview:"
-    )
-
-    print(
-        extracted_text[:2000]
-    )
-
-    print("=" * 60)
-
-    # =================================================
     # OCR FALLBACK
     # =================================================
-
-    # Only use OCR if extracted text is too short.
-    # This avoids unnecessary OCR processing.
 
     if len(extracted_text) < 100:
 
@@ -496,30 +749,6 @@ def extract_pdf_text(pdf_file):
             ocr_text = clean_pdf_text(
                 ocr_text
             )
-
-            print("=" * 60)
-
-            print(
-                "OCR EXTRACTION RESULT"
-            )
-
-            print(
-                "Characters:",
-                len(ocr_text)
-            )
-
-            print(
-                "Preview:"
-            )
-
-            print(
-                ocr_text[:2000]
-            )
-
-            print("=" * 60)
-
-            # Use OCR only when it produces
-            # more useful content.
 
             if len(ocr_text) > len(
                 extracted_text
@@ -543,16 +772,12 @@ def extract_pdf_text(pdf_file):
     )
 
     # =================================================
-    # SAVE CACHE
+    # CACHE
     # =================================================
 
     pdf_cache[
         cache_key
     ] = extracted_text
-
-    # =================================================
-    # FINAL DEBUG
-    # =================================================
 
     print("=" * 60)
 
@@ -561,17 +786,11 @@ def extract_pdf_text(pdf_file):
         len(extracted_text)
     )
 
-    if extracted_text:
-
-        print(
-            "PDF TEXT EXTRACTION SUCCESSFUL"
-        )
-
-    else:
-
-        print(
-            "PDF TEXT EXTRACTION FAILED"
-        )
+    print(
+        "PDF TEXT EXTRACTION SUCCESSFUL"
+        if extracted_text
+        else "PDF TEXT EXTRACTION FAILED"
+    )
 
     print("=" * 60)
 
@@ -584,13 +803,16 @@ def extract_pdf_text(pdf_file):
 
 def clear_pdf_cache():
     """
-    Clear all cached PDF text.
+    Clear PDF text and hyperlink caches.
     """
 
     global pdf_cache
+    global pdf_links_cache
 
     pdf_cache.clear()
 
+    pdf_links_cache.clear()
+
     print(
-        "PDF cache cleared."
+        "PDF text and hyperlink caches cleared."
     )

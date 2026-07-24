@@ -2,7 +2,6 @@ import os
 import re
 
 from config.gemini_config import client
-
 from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_path,
@@ -15,53 +14,57 @@ from pdf.pdf_utils import (
 
 MODEL_NAME = "gemini-2.5-flash"
 
-MAX_TOTAL_CONTEXT = 40000
+# Maximum characters sent to Gemini per PDF
+MAX_PDF_CHARS = 30000
 
-MAX_PDF_CONTEXT = 18000
+# Maximum fallback text length per PDF
+MAX_FALLBACK_CHARS = 6000
 
 
 # =====================================================
-# CLEAN SUMMARY RESPONSE
+# CLEAN TEXT
 # =====================================================
 
-def clean_summary_response(text):
+def clean_summary_text(text):
     """
-    Clean Gemini summary output.
+    Clean extracted PDF text before summarization.
+    Preserves useful line structure.
     """
 
     if not text:
-
         return ""
 
-    text = text.strip()
+    text = text.replace("\r\n", "\n")
+    text = text.replace("\r", "\n")
+    text = text.replace("\t", " ")
 
-    # Remove accidental source labels
-    text = text.replace(
-        "📄 Source: Uploaded PDF",
-        ""
+    # Remove excessive spaces
+    text = re.sub(
+        r"[ ]{2,}",
+        " ",
+        text
     )
 
-    text = text.replace(
-        "🤖 Source: Gemini AI",
-        ""
+    # Remove excessive blank lines
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text
     )
 
     return text.strip()
 
 
 # =====================================================
-# GET PDF DISPLAY NAME
+# GET PDF FILE NAME
 # =====================================================
 
-def get_pdf_display_name(pdf_file):
+def get_pdf_filename(pdf_file):
     """
-    Get a safe PDF filename from different
-    Gradio/Python file input formats.
+    Safely get the original PDF filename.
     """
 
-    pdf_path = get_pdf_path(
-        pdf_file
-    )
+    pdf_path = get_pdf_path(pdf_file)
 
     if pdf_path:
 
@@ -73,314 +76,355 @@ def get_pdf_display_name(pdf_file):
 
 
 # =====================================================
-# BUILD PDF CONTENT
+# BUILD LOCAL FALLBACK SUMMARY
 # =====================================================
 
-def build_pdf_content(pdf_files):
-    """
-    Extract text from all uploaded PDFs.
-
-    Returns:
-        Combined PDF content
-        and extraction status.
-    """
-
-    if not pdf_files:
-
-        return "", []
-
-
-    # -------------------------------------------------
-    # Normalize single PDF
-    # -------------------------------------------------
-
-    if not isinstance(
-        pdf_files,
-        list
-    ):
-
-        pdf_files = [
-            pdf_files
-        ]
-
-
-    combined_content = []
-
-    extraction_results = []
-
-
-    # =================================================
-    # PROCESS EACH PDF
-    # =================================================
-
-    for pdf_file in pdf_files:
-
-        pdf_name = get_pdf_display_name(
-            pdf_file
-        )
-
-        print("=" * 60)
-
-        print(
-            "SUMMARY PDF:",
-            pdf_name
-        )
-
-        # -------------------------------------------------
-        # Extract text
-        # -------------------------------------------------
-
-        try:
-
-            text = extract_pdf_text(
-                pdf_file
-            )
-
-        except Exception as e:
-
-            print(
-                "Summary PDF Extraction Error:",
-                e
-            )
-
-            text = ""
-
-
-        # -------------------------------------------------
-        # Clean text
-        # -------------------------------------------------
-
-        if text:
-
-            text = text.strip()
-
-
-        # -------------------------------------------------
-        # Store extraction result
-        # -------------------------------------------------
-
-        if text:
-
-            extraction_results.append(
-                {
-                    "name": pdf_name,
-                    "success": True,
-                    "characters": len(text)
-                }
-            )
-
-            # Limit each PDF context
-            # so one large PDF doesn't consume
-            # the entire Gemini request.
-
-            if len(text) > MAX_PDF_CONTEXT:
-
-                text = text[
-                    :MAX_PDF_CONTEXT
-                ]
-
-
-            combined_content.append(
-
-                f"""
-==================================================
-PDF: {pdf_name}
-==================================================
-
-{text}
-"""
-
-            )
-
-        else:
-
-            extraction_results.append(
-                {
-                    "name": pdf_name,
-                    "success": False,
-                    "characters": 0
-                }
-            )
-
-
-    # =================================================
-    # COMBINE CONTENT
-    # =================================================
-
-    pdf_content = "\n\n".join(
-        combined_content
-    )
-
-
-    # =================================================
-    # GLOBAL CONTEXT LIMIT
-    # =================================================
-
-    if len(pdf_content) > MAX_TOTAL_CONTEXT:
-
-        pdf_content = pdf_content[
-            :MAX_TOTAL_CONTEXT
-        ]
-
-
-    return (
-        pdf_content,
-        extraction_results
-    )
-
-
-# =====================================================
-# FALLBACK SUMMARY
-# =====================================================
-
-def create_fallback_summary(
-    pdf_content,
-    extraction_results
+def build_fallback_summary(
+    pdf_name,
+    pdf_text
 ):
     """
-    Create a basic summary when Gemini
-    is unavailable.
+    Create a useful local summary when Gemini
+    is unavailable or quota is exceeded.
+
+    This is NOT an AI-generated summary.
+    It extracts important sections and content
+    directly from the uploaded PDF.
     """
 
-    if not pdf_content:
+    if not pdf_text:
 
         return (
-            "⚠ Unable to extract text from "
-            "the uploaded PDF."
+            f"# {pdf_name}\n\n"
+            "⚠ No readable text was found in this PDF."
         )
 
+
+    text = clean_summary_text(
+        pdf_text
+    )
+
+
+    # -------------------------------------------------
+    # IMPORTANT SECTIONS
+    # -------------------------------------------------
+
+    section_names = [
+        "summary",
+        "profile",
+        "objective",
+        "education",
+        "skills",
+        "technical skills",
+        "experience",
+        "work experience",
+        "projects",
+        "certifications",
+        "certificates",
+        "achievements",
+    ]
+
+
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+
+    sections = {}
+
+    current_section = None
+
+
+    # -------------------------------------------------
+    # FIND SECTIONS
+    # -------------------------------------------------
+
+    for line in lines:
+
+        normalized = re.sub(
+            r"[^a-zA-Z ]",
+            "",
+            line
+        ).strip().lower()
+
+
+        matched_section = None
+
+
+        for section in section_names:
+
+            if normalized == section:
+
+                matched_section = section
+
+                break
+
+
+        if matched_section:
+
+            current_section = matched_section
+
+            if current_section not in sections:
+
+                sections[
+                    current_section
+                ] = []
+
+            continue
+
+
+        if current_section:
+
+            # Stop if another obvious heading appears
+            if (
+                len(line) < 50
+                and normalized in section_names
+            ):
+
+                current_section = normalized
+
+                if current_section not in sections:
+
+                    sections[
+                        current_section
+                    ] = []
+
+                continue
+
+
+            sections[
+                current_section
+            ].append(line)
+
+
+    # -------------------------------------------------
+    # SECTION DISPLAY
+    # -------------------------------------------------
 
     output = []
 
     output.append(
-        "⚠ Gemini summary unavailable."
+        f"# {pdf_name}"
     )
 
     output.append("")
 
     output.append(
-        "Quick Summary:"
+        "⚠ Gemini summary unavailable. "
+        "Showing an extracted PDF content summary instead."
     )
 
     output.append("")
 
 
-    # =================================================
-    # PROCESS EACH PDF
-    # =================================================
+    # -------------------------------------------------
+    # SUMMARY / PROFILE
+    # -------------------------------------------------
 
-    for result in extraction_results:
+    summary_content = (
+        sections.get("summary", [])
+        or sections.get("profile", [])
+        or sections.get("objective", [])
+    )
 
-        pdf_name = result[
-            "name"
-        ]
+
+    if summary_content:
 
         output.append(
-            f"### {pdf_name}"
+            "## Main Topics"
+        )
+
+        for item in summary_content[:8]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # EDUCATION
+    # -------------------------------------------------
+
+    education = sections.get(
+        "education",
+        []
+    )
+
+
+    if education:
+
+        output.append(
+            "## Education"
+        )
+
+        for item in education[:10]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # SKILLS
+    # -------------------------------------------------
+
+    skills = (
+        sections.get("skills", [])
+        or sections.get("technical skills", [])
+    )
+
+
+    if skills:
+
+        output.append(
+            "## Skills / Technologies"
+        )
+
+        for item in skills[:15]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # EXPERIENCE
+    # -------------------------------------------------
+
+    experience = (
+        sections.get("experience", [])
+        or sections.get("work experience", [])
+    )
+
+
+    if experience:
+
+        output.append(
+            "## Experience"
+        )
+
+        for item in experience[:15]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # PROJECTS
+    # -------------------------------------------------
+
+    projects = sections.get(
+        "projects",
+        []
+    )
+
+
+    if projects:
+
+        output.append(
+            "## Projects"
+        )
+
+        for item in projects[:15]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # CERTIFICATIONS
+    # -------------------------------------------------
+
+    certifications = (
+        sections.get("certifications", [])
+        or sections.get("certificates", [])
+    )
+
+
+    if certifications:
+
+        output.append(
+            "## Certifications"
+        )
+
+        for item in certifications[:10]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # ACHIEVEMENTS
+    # -------------------------------------------------
+
+    achievements = sections.get(
+        "achievements",
+        []
+    )
+
+
+    if achievements:
+
+        output.append(
+            "## Achievements"
+        )
+
+        for item in achievements[:10]:
+
+            output.append(
+                f"• {item}"
+            )
+
+        output.append("")
+
+
+    # -------------------------------------------------
+    # IF NO SECTIONS FOUND
+    # -------------------------------------------------
+
+    if len(output) <= 4:
+
+        output.append(
+            "## Extracted PDF Content"
         )
 
         output.append("")
 
 
-        # -------------------------------------------------
-        # Find PDF block
-        # -------------------------------------------------
+        # Use meaningful lines instead of
+        # blindly taking only first lines
 
-        pattern = (
+        for line in lines:
 
-            r"PDF:\s*"
+            if len(
+                "\n".join(output)
+            ) >= MAX_FALLBACK_CHARS:
 
-            + re.escape(
-                pdf_name
-            )
-
-            + r"\s*=+\s*"
-
-            r"(.*?)(?="
-            
-            r"\n={10,}"
-
-            r"|\Z)"
-
-        )
+                break
 
 
-        match = re.search(
-
-            pattern,
-
-            pdf_content,
-
-            re.DOTALL
-
-        )
-
-
-        if match:
-
-            text = match.group(
-                1
-            ).strip()
-
-        else:
-
-            text = ""
-
-
-        # -------------------------------------------------
-        # Generate simple bullet points
-        # -------------------------------------------------
-
-        if text:
-
-            # Split into useful lines
-            lines = [
-
-                line.strip()
-
-                for line in text.splitlines()
-
-                if line.strip()
-
-            ]
-
-
-            # Avoid huge fallback output
-            # Take first meaningful lines.
-
-            selected_lines = lines[
-                :12
-            ]
-
-
-            for line in selected_lines:
-
-                # Clean bullet markers
-                line = re.sub(
-                    r"^[•●▪\-]+\s*",
-                    "",
-                    line
-                )
-
-                if len(line) > 250:
-
-                    line = line[
-                        :250
-                    ] + "..."
+            if len(line) > 2:
 
                 output.append(
                     f"• {line}"
                 )
-
-
-        else:
-
-            output.append(
-                "• No readable text was extracted."
-            )
-
-
-        output.append("")
 
 
     return "\n".join(
@@ -389,166 +433,109 @@ def create_fallback_summary(
 
 
 # =====================================================
-# SUMMARIZE PDF
+# GEMINI SUMMARY
 # =====================================================
 
-def summarize_pdf(pdf_files):
+def generate_gemini_summary(
+    pdf_name,
+    pdf_text
+):
     """
-    Generate AI summaries for one or more PDFs.
-
-    Gemini is used when available.
-
-    If Gemini fails, a local fallback summary
-    is returned instead.
+    Generate an AI summary for one PDF.
     """
 
-    # =================================================
-    # VALIDATE INPUT
-    # =================================================
+    if not pdf_text:
 
-    if not pdf_files:
-
-        return (
-            "Please upload one or more PDFs first."
-        )
+        return ""
 
 
-    # =================================================
-    # BUILD PDF CONTEXT
-    # =================================================
-
-    pdf_content, extraction_results = (
-        build_pdf_content(
-            pdf_files
-        )
+    pdf_text = clean_summary_text(
+        pdf_text
     )
 
 
-    # =================================================
-    # CHECK EXTRACTION
-    # =================================================
+    # Limit content sent to Gemini
+    pdf_text = pdf_text[
+        :MAX_PDF_CHARS
+    ]
 
-    if not pdf_content:
-
-        return (
-            "⚠ Unable to extract readable text "
-            "from the uploaded PDF."
-        )
-
-
-    # =================================================
-    # CREATE SUMMARY PROMPT
-    # =================================================
 
     prompt = f"""
 You are an expert PDF Summarization Assistant.
 
 Your task is to summarize ONLY the uploaded PDF content.
 
-IMPORTANT RULES:
+PDF FILE NAME:
+{pdf_name}
 
-1. Use ONLY the information provided in the PDF content.
+STRICT RULES:
+
+1. Use ONLY the information provided in the PDF.
 2. Do NOT use outside knowledge.
-3. Do NOT invent or guess information.
-4. If multiple PDFs are provided, summarize EACH PDF separately.
-5. Keep the summary concise and useful.
-6. Do not copy large paragraphs from the PDF.
-7. Use bullet points where appropriate.
-8. Preserve important names, dates, numbers, technologies,
-   skills, projects, education, and experience exactly as
-   supported by the PDF.
-9. Do not add information that is not present in the PDF.
-10. Do not mention these instructions.
+3. Do NOT invent missing information.
+4. Do NOT guess.
+5. Do NOT copy large paragraphs.
+6. Use concise bullet points.
+7. Keep the summary clear and professional.
+8. If a section is not present, do not invent it.
+9. If there are multiple projects, list them separately.
+10. If there are multiple internships or jobs, list them separately.
+11. Preserve important names, dates, technologies, numbers, and organizations.
 
-For each PDF, use this structure:
+Use this structure when the information exists:
 
 # PDF Name
 
 ## Main Topics
 • ...
 
-## Key Points
+## Education
 • ...
 
-## Education / Background
+## Skills / Technologies
 • ...
 
-## Skills / Tools / Technologies
-• ...
-
-## Experience / Internships
+## Experience
 • ...
 
 ## Projects
 • ...
 
-## Important Information
+## Certifications
 • ...
 
-Only include sections that are relevant to the PDF.
+## Important Conclusions
+• ...
 
-Uploaded PDF Content:
+PDF CONTENT:
 
-{pdf_content}
+{pdf_text}
 
-Now generate the summary.
+Now generate a concise summary.
 """
 
 
-    # =================================================
-    # GEMINI REQUEST
-    # =================================================
-
     try:
 
-        print("=" * 60)
-
-        print(
-            "GENERATING PDF SUMMARY"
-        )
-
-        print(
-            "PDF CONTEXT CHARACTERS:",
-            len(pdf_content)
-        )
-
-        print("=" * 60)
-
-
         response = client.models.generate_content(
-
             model=MODEL_NAME,
-
             contents=prompt
-
         )
 
-
-        # =================================================
-        # VALIDATE RESPONSE
-        # =================================================
 
         if (
             response
             and response.text
         ):
 
-            answer = clean_summary_response(
-                response.text
-            )
+            return response.text.strip()
 
-            if answer:
-
-                return answer
-
-
-        # =================================================
-        # EMPTY GEMINI RESPONSE
-        # =================================================
 
         print(
-            "Gemini returned an empty summary."
+            "Gemini Summary Error: Empty response."
         )
+
+        return ""
 
 
     except Exception as e:
@@ -558,7 +545,16 @@ Now generate the summary.
         )
 
         print(
-            "SUMMARY ERROR:",
+            "GEMINI PDF SUMMARY ERROR"
+        )
+
+        print(
+            "PDF:",
+            pdf_name
+        )
+
+        print(
+            "Error:",
             e
         )
 
@@ -566,15 +562,229 @@ Now generate the summary.
             "=" * 60
         )
 
+        return ""
 
-    # =================================================
-    # LOCAL FALLBACK
-    # =================================================
 
-    return create_fallback_summary(
+# =====================================================
+# MAIN PDF SUMMARY FUNCTION
+# =====================================================
 
-        pdf_content,
+def summarize_pdf(
+    pdf_files
+):
+    """
+    Summarize one or more uploaded PDFs.
 
-        extraction_results
+    Flow:
 
+    1. Validate uploaded PDFs.
+    2. Extract text.
+    3. Try Gemini AI summary.
+    4. If Gemini fails, use local PDF extraction fallback.
+    5. Summarize each PDF separately.
+    """
+
+    if not pdf_files:
+
+        return (
+            "Please upload one or more PDFs first."
+        )
+
+
+    # -------------------------------------------------
+    # Normalize single PDF input
+    # -------------------------------------------------
+
+    if not isinstance(
+        pdf_files,
+        (list, tuple)
+    ):
+
+        pdf_files = [
+            pdf_files
+        ]
+
+
+    summaries = []
+
+
+    # -------------------------------------------------
+    # PROCESS EACH PDF
+    # -------------------------------------------------
+
+    for pdf in pdf_files:
+
+        try:
+
+            pdf_path = get_pdf_path(
+                pdf
+            )
+
+
+            if not pdf_path:
+
+                print(
+                    "PDF Summary Error: "
+                    "Invalid PDF path."
+                )
+
+                continue
+
+
+            pdf_name = os.path.basename(
+                pdf_path
+            )
+
+
+            print(
+                "=" * 60
+            )
+
+            print(
+                "PDF SUMMARY STARTED"
+            )
+
+            print(
+                "PDF:",
+                pdf_name
+            )
+
+            print(
+                "=" * 60
+            )
+
+
+            # -----------------------------------------
+            # EXTRACT TEXT
+            # -----------------------------------------
+
+            pdf_text = extract_pdf_text(
+                pdf
+            )
+
+
+            pdf_text = clean_summary_text(
+                pdf_text
+            )
+
+
+            if not pdf_text:
+
+                summaries.append(
+                    f"# {pdf_name}\n\n"
+                    "⚠ Unable to extract readable text "
+                    "from this PDF."
+                )
+
+                continue
+
+
+            print(
+                "PDF TEXT LENGTH:",
+                len(pdf_text)
+            )
+
+
+            # -----------------------------------------
+            # TRY GEMINI
+            # -----------------------------------------
+
+            ai_summary = generate_gemini_summary(
+                pdf_name,
+                pdf_text
+            )
+
+
+            if ai_summary:
+
+                summaries.append(
+                    ai_summary
+                )
+
+                print(
+                    "Gemini PDF summary generated successfully."
+                )
+
+
+            # -----------------------------------------
+            # GEMINI FALLBACK
+            # -----------------------------------------
+
+            else:
+
+                fallback = build_fallback_summary(
+                    pdf_name,
+                    pdf_text
+                )
+
+
+                summaries.append(
+                    fallback
+                )
+
+
+                print(
+                    "Using local PDF summary fallback."
+                )
+
+
+        except Exception as e:
+
+            print(
+                "=" * 60
+            )
+
+            print(
+                "PDF SUMMARY PROCESSING ERROR"
+            )
+
+            print(
+                "Error:",
+                e
+            )
+
+            print(
+                "=" * 60
+            )
+
+
+            try:
+
+                pdf_name = get_pdf_filename(
+                    pdf
+                )
+
+
+                summaries.append(
+                    f"# {pdf_name}\n\n"
+                    "⚠ Unable to generate a summary "
+                    "for this PDF."
+                )
+
+
+            except Exception:
+
+                summaries.append(
+                    "⚠ Unable to generate a summary "
+                    "for this PDF."
+                )
+
+
+    # -------------------------------------------------
+    # NO RESULTS
+    # -------------------------------------------------
+
+    if not summaries:
+
+        return (
+            "⚠ Unable to summarize the uploaded PDF(s)."
+        )
+
+
+    # -------------------------------------------------
+    # FINAL RESULT
+    # -------------------------------------------------
+
+    return "\n\n---\n\n".join(
+        summaries
     )
