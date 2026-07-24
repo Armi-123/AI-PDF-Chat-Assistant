@@ -97,7 +97,8 @@ def clean_pdf_text(text):
 
 def find_direct_pdf_answer(
     question,
-    pdf_content
+    pdf_content,
+    pdf_files
 ):
 
     if not question:
