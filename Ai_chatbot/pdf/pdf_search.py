@@ -2,9 +2,8 @@ import re
 from difflib import SequenceMatcher
 
 from pdf.pdf_utils import (
-    extract_pdf_links,
+    extract_pdf_links
 )
-
 
 # =====================================================
 # SIMILARITY
@@ -634,8 +633,10 @@ def find_certifications(pdf_text):
 def find_direct_pdf_answer(
     pdf_text,
     question,
-    pdf_file=None
+    pdf_files=None
 ):
+    
+
     """
     Search direct factual questions from PDF.
 
@@ -683,7 +684,7 @@ def find_direct_pdf_answer(
     if query_type == "linkedin":
 
         links = find_social_links(
-            pdf_file,
+            pdf_files,
             pdf_text
         )
 
@@ -702,7 +703,7 @@ def find_direct_pdf_answer(
     if query_type == "github":
 
         links = find_social_links(
-            pdf_file,
+            pdf_files,
             pdf_text
         )
 

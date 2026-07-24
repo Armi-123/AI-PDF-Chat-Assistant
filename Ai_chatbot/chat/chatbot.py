@@ -22,7 +22,6 @@ from utils.semantic_search import (
     semantic_search,
 )
 
-
 # =====================================================
 # CONFIGURATION
 # =====================================================
@@ -1314,7 +1313,7 @@ def chatbot(
     direct_answer = find_direct_pdf_answer(
         pdf_content,
         message,
-        pdf_files[0] if pdf_files else None
+        pdf_files
     )
 
 
@@ -1636,3 +1635,11 @@ def chatbot(
         "⚠ Unable to answer the question "
         "at this time."
     )
+    
+import inspect
+
+print("FUNCTION SIGNATURE:")
+print(inspect.signature(find_direct_pdf_answer))
+
+print("FUNCTION FILE:")
+print(inspect.getfile(find_direct_pdf_answer))
