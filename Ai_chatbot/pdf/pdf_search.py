@@ -2,7 +2,8 @@ import re
 from difflib import SequenceMatcher
 
 from pdf.pdf_utils import (
-    extract_pdf_links
+    extract_pdf_links,
+    get_pdf_title,
 )
 
 # =====================================================
@@ -631,113 +632,321 @@ def find_certifications(pdf_text):
 # =====================================================
 
 def find_direct_pdf_answer(
-    pdf_text,
     question,
+    pdf_content,
     pdf_files=None
 ):
-    
-
     """
-    Search direct factual questions from PDF.
+    Find exact answers directly from uploaded PDF content.
 
-    Returns:
-    - Exact direct answer when found
-    - Explicit certification message
-    - Empty string when not found
+    Supports:
+    - Email
+    - Phone number
+    - LinkedIn URL
+    - GitHub URL
+    - Candidate name
+    - Certifications
+    - Projects
+    - Education
+    - Internships
+    - Technical skills
+
+    pdf_files is optional and is kept for compatibility
+    with the chatbot's existing function calls.
     """
 
-    if not question:
+    if not question or not pdf_content:
         return ""
 
-    pdf_text = normalize_pdf_text(
-        pdf_text
-    )
-
-    query_type = detect_direct_query(
-        question
-    )
+    question_lower = question.lower().strip()
 
     # =================================================
     # EMAIL
     # =================================================
 
-    if query_type == "email":
+    if any(keyword in question_lower for keyword in [
+        "email",
+        "email address",
+        "email id",
+        "mail id"
+    ]):
 
-        return find_email(
-            pdf_text
+        emails = re.findall(
+            r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+            pdf_content
         )
+
+        if emails:
+            return "\n".join(
+                dict.fromkeys(emails)
+            )
 
     # =================================================
     # PHONE
     # =================================================
 
-    if query_type == "phone":
+    if any(keyword in question_lower for keyword in [
+        "phone",
+        "mobile",
+        "contact number",
+        "phone number"
+    ]):
 
-        return find_phone(
-            pdf_text
+        phones = re.findall(
+            r"(?:\+91[\s-]?)?[6-9]\d{9}",
+            pdf_content
         )
+
+        if phones:
+            return "\n".join(
+                dict.fromkeys(phones)
+            )
 
     # =================================================
     # LINKEDIN
     # =================================================
 
-    if query_type == "linkedin":
+    if "linkedin" in question_lower:
 
-        links = find_social_links(
-            pdf_files,
-            pdf_text
+        linkedin_links = re.findall(
+            r"https?://(?:www\.)?linkedin\.com/[^\s\)\]>]+",
+            pdf_content,
+            re.IGNORECASE
         )
 
-        if links["linkedin"]:
-
+        if linkedin_links:
             return "\n".join(
-                links["linkedin"]
+                dict.fromkeys(
+                    link.rstrip(".,;")
+                    for link in linkedin_links
+                )
             )
 
+        # If PDF text extraction hides the URL
+        # and only shows LinkedIn text, return
+        # empty so Gemini can handle it.
         return ""
 
     # =================================================
     # GITHUB
     # =================================================
 
-    if query_type == "github":
+    if "github" in question_lower:
 
-        links = find_social_links(
-            pdf_files,
-            pdf_text
+        github_links = re.findall(
+            r"https?://(?:www\.)?github\.com/[^\s\)\]>]+",
+            pdf_content,
+            re.IGNORECASE
         )
 
-        if links["github"]:
-
+        if github_links:
             return "\n".join(
-                links["github"]
+                dict.fromkeys(
+                    link.rstrip(".,;")
+                    for link in github_links
+                )
             )
 
+        # If PDF text extraction hides the URL
+        # and only shows GitHub text, return empty.
         return ""
+
+    # =================================================
+    # CANDIDATE NAME
+    # =================================================
+
+    if any(keyword in question_lower for keyword in [
+        "candidate name",
+        "candidate's name",
+        "person name",
+        "person's name",
+        "who is the candidate",
+        "what is the candidate name",
+        "what is the candidate's name",
+        "what is the name",
+        "who is the person"
+    ]):
+
+        # Try PDF title first
+        try:
+
+            title = get_pdf_title(
+                pdf_content
+            )
+
+            if (
+                title
+                and title != "Unknown PDF"
+                and not title.lower().endswith(".pdf")
+            ):
+                return title.strip()
+
+        except Exception:
+            pass
+
+        # Try first meaningful line
+        lines = [
+            line.strip()
+            for line in pdf_content.splitlines()
+            if line.strip()
+        ]
+
+        invalid_names = {
+            "resume",
+            "curriculum vitae",
+            "cv",
+            "summary",
+            "profile",
+            "contact",
+            "education",
+            "skills",
+            "experience",
+            "projects"
+        }
+
+        for line in lines[:15]:
+
+            if line.lower() in invalid_names:
+                continue
+
+            if "@" in line:
+                continue
+
+            if "linkedin" in line.lower():
+                continue
+
+            if "github" in line.lower():
+                continue
+
+            if re.search(
+                r"https?://",
+                line,
+                re.IGNORECASE
+            ):
+                continue
+
+            if re.fullmatch(
+                r"[\d\s\+\-\(\)]+",
+                line
+            ):
+                continue
+
+            # Name should contain 2–5 words
+            # and only alphabetic characters
+            if re.fullmatch(
+                r"[A-Za-z]+(?:[\s]+[A-Za-z]+){1,4}",
+                line
+            ):
+
+                return line
+
+    # =================================================
+    # PROJECTS
+    # =================================================
+
+    if (
+        "project" in question_lower
+        or "projects" in question_lower
+    ):
+
+        project_section = re.search(
+            r"Projects\s*(.*?)(?=\n(?:Education|Experience|Skills|Certifications|Certifications & Awards|$))",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if project_section:
+            return project_section.group(1).strip()
+
+    # =================================================
+    # EDUCATION
+    # =================================================
+
+    if (
+        "education" in question_lower
+        or "educational background" in question_lower
+        or "degree" in question_lower
+    ):
+
+        education_section = re.search(
+            r"Education\s*(.*?)(?=\n(?:Skills|Experience|Projects|Certifications|$))",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if education_section:
+            return education_section.group(1).strip()
+
+    # =================================================
+    # INTERNSHIPS / EXPERIENCE
+    # =================================================
+
+    if (
+        "internship" in question_lower
+        or "internships" in question_lower
+        or "experience" in question_lower
+        or "work experience" in question_lower
+    ):
+
+        experience_section = re.search(
+            r"Experience\s*(.*?)(?=\n(?:Projects|Education|Skills|Certifications|$))",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if experience_section:
+            return experience_section.group(1).strip()
 
     # =================================================
     # CERTIFICATIONS
     # =================================================
 
-    if query_type == "certifications":
+    if (
+        "certification" in question_lower
+        or "certifications" in question_lower
+        or "certificate" in question_lower
+        or "certificates" in question_lower
+    ):
 
-        return find_certifications(
-            pdf_text
+        certification_section = re.search(
+            r"Certifications?(?:\s*&\s*Awards)?\s*(.*?)(?=\n(?:Projects|Education|Skills|Experience|$))",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
         )
 
+        if certification_section:
+
+            result = certification_section.group(1).strip()
+
+            if result:
+                return result
+
+        return "No certifications are mentioned in the uploaded PDF."
+
     # =================================================
-    # NAME
+    # TECHNICAL SKILLS
     # =================================================
 
-    if query_type == "name":
+    if (
+        "technical skills" in question_lower
+        or "skills" in question_lower
+        or "technologies" in question_lower
+    ):
 
-        return find_candidate_name(
-            pdf_text
+        skills_section = re.search(
+            r"Skills(?:\s*/\s*Technologies)?\s*(.*?)(?=\n(?:Experience|Projects|Education|Certifications|$))",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
         )
+
+        if skills_section:
+            return skills_section.group(1).strip()
+
+    # =================================================
+    # NO DIRECT ANSWER
+    # =================================================
 
     return ""
-
-
 # =====================================================
 # GENERIC KEYWORD SEARCH
 # =====================================================

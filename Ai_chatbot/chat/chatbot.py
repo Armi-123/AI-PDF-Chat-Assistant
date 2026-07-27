@@ -6,7 +6,9 @@ from pypdf import PdfReader
 
 from config.gemini_config import client
 
-from pdf.pdf_search import find_relevant_text
+from pdf.pdf_search import (
+    find_relevant_text,
+)
 from pdf.pdf_summary import summarize_pdf
 
 from pdf.pdf_utils import (
@@ -98,8 +100,9 @@ def clean_pdf_text(text):
 def find_direct_pdf_answer(
     question,
     pdf_content,
-    pdf_files
+    pdf_files=None
 ):
+
 
     if not question:
         return ""
@@ -1312,11 +1315,10 @@ def chatbot(
     # =================================================
 
     direct_answer = find_direct_pdf_answer(
-        pdf_content,
         message,
+        pdf_content,
         pdf_files
     )
-
 
     if direct_answer:
 
