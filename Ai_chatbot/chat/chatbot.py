@@ -1233,6 +1233,11 @@ def chatbot(
     pdf_content = extract_all_pdf_text(
         pdf_files
     )
+    
+    print("=" * 60)
+    print("PDF CONTENT DEBUG")
+    print(pdf_content)
+    print("=" * 60)
 
 
     if not pdf_content:

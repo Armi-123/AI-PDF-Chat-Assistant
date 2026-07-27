@@ -725,6 +725,11 @@ def extract_pdf_text(pdf_file):
     extracted_text = clean_pdf_text(
         extracted_text
     )
+    
+    print("=" * 60)
+    print("FULL EXTRACTED PDF TEXT:")
+    print(extracted_text)
+    print("=" * 60)
 
     # =================================================
     # OCR FALLBACK
