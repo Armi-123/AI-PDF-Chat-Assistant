@@ -148,7 +148,7 @@ def find_direct_pdf_answer(
     ):
 
         phones = re.findall(
-            r"(?:\+91[\s-]?)?[6-9]\d{9}",
+            r"(?:\(\+91\)|\+91)?[\s-]*[6-9]\d{4}[\s-]?\d{5}",
             pdf_content
         )
 
@@ -333,7 +333,14 @@ def find_section_content(
             "work experience",
             "professional experience",
             "internship",
-            "internships"
+            "internships",
+            "intern",
+            "worked",
+            "work history",
+            "employment",
+            "professional background",
+            "previous experience",
+            "previous internships"
         ],
 
         "projects": [
@@ -1322,7 +1329,7 @@ def chatbot(
     direct_answer = find_direct_pdf_answer(
         message,
         pdf_content,
-        pdf_files
+        # pdf_files
     )
 
     if direct_answer:

@@ -693,7 +693,7 @@ def find_direct_pdf_answer(
     ]):
 
         phones = re.findall(
-            r"(?:\+91[\s-]?)?[6-9]\d{9}",
+            r"(?:\(\+91\)|\+91)?[\s-]*[6-9]\d{4}[\s-]?\d{5}",
             pdf_content
         )
 
@@ -722,9 +722,16 @@ def find_direct_pdf_answer(
                 )
             )
 
-        # If PDF text extraction hides the URL
-        # and only shows LinkedIn text, return
-        # empty so Gemini can handle it.
+        if re.search(
+            r"\blinkedin\b",
+            pdf_content,
+            re.IGNORECASE
+        ):
+            return (
+                "LinkedIn is mentioned in the uploaded PDF, "
+                "but the actual LinkedIn profile URL is not provided."
+            )
+
         return ""
 
     # =================================================
@@ -747,8 +754,16 @@ def find_direct_pdf_answer(
                 )
             )
 
-        # If PDF text extraction hides the URL
-        # and only shows GitHub text, return empty.
+        if re.search(
+            r"\bgithub\b",
+            pdf_content,
+            re.IGNORECASE
+        ):
+            return (
+                "GitHub is mentioned in the uploaded PDF, "
+                "but the actual GitHub profile URL is not provided."
+            )
+
         return ""
 
     # =================================================
@@ -947,6 +962,7 @@ def find_direct_pdf_answer(
     # =================================================
 
     return ""
+
 # =====================================================
 # GENERIC KEYWORD SEARCH
 # =====================================================
