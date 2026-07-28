@@ -624,34 +624,39 @@ def extract_pdf_text(pdf_file):
         return cached_text
 
     # =================================================
-    # DEBUG
+    # PDF EXTRACTION
     # =================================================
 
-    print("=" * 60)
-
     print(
-        "PDF EXTRACTION STARTED"
+        f"PDF extraction started: "
+        f"{os.path.basename(pdf_path)}"
     )
-
-    print(
-        "PDF PATH:",
-        pdf_path
-    )
-
+    
     try:
 
+        pdf_reader = PdfReader(pdf_path)
+
+        full_text = ""
+
+        for page in pdf_reader.pages:
+
+            page_text = page.extract_text() or ""
+
+            full_text += page_text + "\n"
+
         print(
-            "FILE SIZE:",
-            os.path.getsize(
-                pdf_path
-            ),
-            "bytes"
+            f"PDF extraction successful | "
+            f"Pages: {len(pdf_reader.pages)} | "
+            f"Characters: {len(full_text)}"
         )
 
-    except Exception:
-        pass
+    except Exception as e:
 
-    print("=" * 60)
+        print(
+            f"PDF extraction failed: {e}"
+        )
+
+        raise
 
     # =================================================
     # NORMAL EXTRACTION

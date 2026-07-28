@@ -527,6 +527,52 @@ def find_section_content(
     ).strip()
 
 
+def format_pdf_section_answer(question, section_text):
+    """
+    Format information already found directly
+    inside the uploaded PDF.
+    """
+
+    if not section_text:
+        return ""
+
+    question_lower = question.lower()
+
+    # Projects
+    if "project" in question_lower:
+        return section_text.strip()
+
+    # Skills
+    if "skill" in question_lower or "technologies" in question_lower:
+        return section_text.strip()
+
+    # Education
+    if (
+        "education" in question_lower
+        or "degree" in question_lower
+        or "educational background" in question_lower
+    ):
+        return section_text.strip()
+
+    # Work experience / internships
+    if (
+        "experience" in question_lower
+        or "internship" in question_lower
+        or "internships" in question_lower
+        or "work experience" in question_lower
+    ):
+        return section_text.strip()
+
+    # Certifications
+    if (
+        "certification" in question_lower
+        or "certifications" in question_lower
+        or "certificate" in question_lower
+    ):
+        return section_text.strip()
+
+    return ""
+
 # =====================================================
 # GEMINI REQUEST
 # =====================================================
@@ -1118,14 +1164,13 @@ def chatbot(
     pdf_files=None
 ):
 
-    # =================================================
-    # VALIDATE MESSAGE
-    # =================================================
+    # =====================================================
+    # 1. VALIDATE USER MESSAGE
+    # =====================================================
 
     message = (
         message or ""
     ).strip()
-
 
     if not message:
 
@@ -1134,9 +1179,9 @@ def chatbot(
         )
 
 
-    # =================================================
-    # CONVERSATION MEMORY
-    # =================================================
+    # =====================================================
+    # 2. BUILD CONVERSATION MEMORY
+    # =====================================================
 
     try:
 
@@ -1154,18 +1199,18 @@ def chatbot(
         conversation = ""
 
 
-    # =================================================
-    # NORMALIZE PDF FILES
-    # =================================================
+    # =====================================================
+    # 3. NORMALIZE PDF FILES
+    # =====================================================
 
     pdf_files = normalize_pdf_files(
         pdf_files
     )
 
 
-    # =================================================
-    # NO PDF MODE
-    # =================================================
+    # =====================================================
+    # 4. NO PDF MODE
+    # =====================================================
 
     if not pdf_files:
 
@@ -1215,13 +1260,11 @@ def chatbot(
         )
 
 
-    # =================================================
-    # EXTRACT PDF CONTENT
-    # =================================================
+    # =====================================================
+    # 5. PDF DEBUG INFORMATION
+    # =====================================================
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     print(
         "PDF CHATBOT STARTED"
@@ -1232,19 +1275,26 @@ def chatbot(
         pdf_files
     )
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
+
+    # =====================================================
+    # 6. EXTRACT ALL PDF TEXT
+    # =====================================================
 
     pdf_content = extract_all_pdf_text(
         pdf_files
     )
-    
-    print("=" * 60)
-    print("PDF CONTENT DEBUG")
-    print(pdf_content)
-    print("=" * 60)
+
+
+    print(
+        "PDF CONTENT LOADED SUCCESSFULLY."
+    )
+
+    print(
+        "EXTRACTED PDF TEXT LENGTH:",
+        len(pdf_content)
+    )
 
 
     if not pdf_content:
@@ -1255,20 +1305,14 @@ def chatbot(
         )
 
 
-    print(
-        "EXTRACTED PDF TEXT LENGTH:",
-        len(pdf_content)
-    )
-
-
-    # =================================================
-    # PDF SUMMARY
-    # =================================================
+    # =====================================================
+    # 7. PDF SUMMARY QUERY
+    # =====================================================
 
     question_lower = message.lower()
 
 
-    if any(
+    is_summary_request = any(
         keyword in question_lower
         for keyword in [
             "summarize",
@@ -1278,7 +1322,10 @@ def chatbot(
             "give me an overview",
             "overview of the pdf"
         ]
-    ):
+    )
+
+
+    if is_summary_request:
 
         try:
 
@@ -1286,10 +1333,12 @@ def chatbot(
                 pdf_files
             )
 
+
             save_session(
                 message,
                 answer
             )
+
 
             return answer
 
@@ -1302,9 +1351,9 @@ def chatbot(
             )
 
 
-    # =================================================
-    # PDF METADATA
-    # =================================================
+    # =====================================================
+    # 8. PDF METADATA QUERY
+    # =====================================================
 
     metadata_answer = handle_pdf_metadata_query(
         message,
@@ -1322,22 +1371,32 @@ def chatbot(
         return metadata_answer
 
 
-    # =================================================
-    # DIRECT FACT SEARCH
-    # =================================================
+    # =====================================================
+    # 9. INITIALIZE SEARCH RESULT
+    # =====================================================
+
+    relevant_text = ""
+
+
+    # =====================================================
+    # 10. DIRECT PDF FACT SEARCH
+    # =====================================================
 
     direct_answer = find_direct_pdf_answer(
-        message,
-        pdf_content,
-        # pdf_files
+        question=message,
+        pdf_content=pdf_content,
+        pdf_files=pdf_files
     )
+
 
     if direct_answer:
 
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + direct_answer
+        print(
+            "DIRECT PDF ANSWER FOUND"
         )
+
+
+        answer = direct_answer
 
 
         save_session(
@@ -1349,13 +1408,13 @@ def chatbot(
         return answer
 
 
-    # =================================================
-    # SECTION-AWARE SEARCH
-    # =================================================
+    # =====================================================
+    # 11. SECTION-AWARE PDF SEARCH
+    # =====================================================
 
     section_text = find_section_content(
-        message,
-        pdf_content
+        question=message,
+        pdf_content=pdf_content
     )
 
 
@@ -1366,66 +1425,60 @@ def chatbot(
         )
 
 
-        relevant_text = section_text
+        pdf_section_answer = format_pdf_section_answer(
+            question=message,
+            section_text=section_text
+        )
 
 
-    else:
-
-        relevant_text = ""
-
-
-    # =================================================
-    # SEMANTIC SEARCH
-    # =================================================
-
-    if not relevant_text:
-
-        try:
-
-            index, chunks = build_index(
-                pdf_content
-            )
-
-
-            relevant_text = semantic_search(
-                message,
-                index,
-                chunks,
-                top_k=SEMANTIC_TOP_K,
-                min_score=SEMANTIC_MIN_SCORE
-            )
-
-
-        except Exception as e:
+        if pdf_section_answer:
 
             print(
-                "Semantic Search Error:",
-                e
+                "SECTION PDF ANSWER FOUND"
             )
 
-            relevant_text = ""
+
+            answer = pdf_section_answer
 
 
-    # =================================================
-    # KEYWORD SEARCH
-    # =================================================
+            save_session(
+                message,
+                answer
+            )
+
+
+            return answer
+
+
+        else:
+
+            print(
+                "SECTION CONTENT FOUND - USING GEMINI"
+            )
+
+
+            relevant_text = section_text
+
+
+    # =====================================================
+    # 12. KEYWORD SEARCH
+    # =====================================================
 
     if not relevant_text:
 
         try:
-
-            # IMPORTANT:
-            # pdf_search.py expects:
-            #
-            # find_relevant_text(
-            #     pdf_text,
-            #     question
-            # )
 
             relevant_text = find_relevant_text(
                 pdf_content,
                 message
             )
+
+
+            if relevant_text:
+
+                print(
+                    "KEYWORD SEARCH FOUND RELEVANT PDF CONTENT"
+                )
 
 
         except Exception as e:
@@ -1438,29 +1491,27 @@ def chatbot(
             relevant_text = ""
 
 
-    # =================================================
-    # LIMIT CONTEXT
-    # =================================================
+    # =====================================================
+    # 13. LIMIT PDF CONTEXT
+    # =====================================================
 
     if relevant_text:
 
         relevant_text = relevant_text.strip()
 
 
-    if len(relevant_text) > MAX_PDF_CONTEXT:
+        if len(relevant_text) > MAX_PDF_CONTEXT:
 
-        relevant_text = relevant_text[
-            :MAX_PDF_CONTEXT
-        ]
+            relevant_text = relevant_text[
+                :MAX_PDF_CONTEXT
+            ]
 
 
-    # =================================================
-    # DEBUG
-    # =================================================
+    # =====================================================
+    # 14. DEBUG SEARCH RESULT
+    # =====================================================
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     print(
         "USER QUESTION:",
@@ -1477,14 +1528,12 @@ def chatbot(
         else "NOT FOUND"
     )
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
 
-    # =================================================
-    # PDF CONTEXT FOUND
-    # =================================================
+    # =====================================================
+    # 15. PDF CONTEXT FOUND
+    # =====================================================
 
     if relevant_text:
 
@@ -1496,9 +1545,9 @@ def chatbot(
         )
 
 
-        # ---------------------------------------------
+        # -------------------------------------------------
         # GEMINI SUCCESS
-        # ---------------------------------------------
+        # -------------------------------------------------
 
         if result["success"]:
 
@@ -1517,49 +1566,9 @@ def chatbot(
             return answer
 
 
-        # ---------------------------------------------
-        # GEMINI QUOTA
-        # ---------------------------------------------
-
-        if result["error_type"] == "quota":
-
-            answer = pdf_context_fallback(
-                relevant_text
-            )
-
-
-            save_session(
-                message,
-                answer
-            )
-
-
-            return answer
-
-
-        # ---------------------------------------------
-        # GEMINI BUSY
-        # ---------------------------------------------
-
-        if result["error_type"] == "busy":
-
-            answer = pdf_context_fallback(
-                relevant_text
-            )
-
-
-            save_session(
-                message,
-                answer
-            )
-
-
-            return answer
-
-
-        # ---------------------------------------------
-        # OTHER ERROR
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # GEMINI FAILED - RETURN PDF CONTEXT
+        # -------------------------------------------------
 
         answer = pdf_context_fallback(
             relevant_text
@@ -1575,86 +1584,24 @@ def chatbot(
         return answer
 
 
-    # =================================================
-    # PDF INFORMATION NOT FOUND
-    # =================================================
+    # =====================================================
+    # 16. INFORMATION NOT FOUND IN PDF
+    # =====================================================
 
     print(
         "PDF INFORMATION NOT FOUND"
     )
 
 
-    # =================================================
-    # GENERAL KNOWLEDGE FALLBACK
-    # =================================================
-
-    result = ask_gemini(
-        message=message,
-        pdf_context="",
-        conversation=conversation,
-        pdf_fallback=True
+    answer = (
+        "Information not found in uploaded PDF."
     )
 
 
-    if result["success"]:
-
-        answer = (
-            "🤖 Source: Gemini AI\n\n"
-            + result["answer"]
-        )
-
-
-        save_session(
-            message,
-            answer
-        )
-
-
-        return answer
-
-
-    # =================================================
-    # GEMINI QUOTA
-    # =================================================
-
-    if result["error_type"] == "quota":
-
-        return (
-            "⚠ Gemini API quota exceeded.\n\n"
-            "The requested information was not "
-            "found in the uploaded PDF.\n\n"
-            "Please wait and try again later "
-            "or use another Gemini API key."
-        )
-
-
-    # =================================================
-    # GEMINI BUSY
-    # =================================================
-
-    if result["error_type"] == "busy":
-
-        return (
-            "⚠ Gemini server is currently busy.\n\n"
-            "The requested information was not "
-            "found in the uploaded PDF.\n\n"
-            "Please try again after a few seconds."
-        )
-
-
-    # =================================================
-    # FINAL ERROR
-    # =================================================
-
-    return (
-        "⚠ Unable to answer the question "
-        "at this time."
+    save_session(
+        message,
+        answer
     )
-    
-import inspect
 
-print("FUNCTION SIGNATURE:")
-print(inspect.signature(find_direct_pdf_answer))
 
-print("FUNCTION FILE:")
-print(inspect.getfile(find_direct_pdf_answer))
+    return answer
