@@ -49,13 +49,5 @@ def get_statistics():
     return f"""
 ### 📊 Chat Statistics
 
-💬 Questions Asked : **{total_questions}**
-
-📄 PDF Answers : **{pdf_answers}**
-
-🤖 Gemini Answers : **{gemini_answers}**
-
-📝 Words Generated : **{total_words}**
-
-⏱ Chat Duration : **{minutes}m {seconds}s**
+💬 Questions Asked : **{total_questions}** 📄 PDF Answers : **{pdf_answers}** 🤖 Gemini Answers : **{gemini_answers}**
 """

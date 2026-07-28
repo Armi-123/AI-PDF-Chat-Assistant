@@ -821,10 +821,11 @@ def pdf_context_fallback(
         ]
 
 
-    return (
-        "📄 Source: Uploaded PDF\n\n"
-        + relevant_text
-    )
+    # return (
+    #     "📄 Source: Uploaded PDF\n\n"
+    #     + relevant_text
+    # )
+    return relevant_text
 
 
 # =====================================================
@@ -1224,10 +1225,11 @@ def chatbot(
 
         if result["success"]:
 
-            answer = (
-                "🤖 Source: Gemini AI\n\n"
-                + result["answer"]
-            )
+            # answer = (
+            #     "🤖 Source: Gemini AI\n\n"
+            #     + result["answer"]
+            # )
+            answer = result["answer"]
 
             save_session(
                 message,
@@ -1551,10 +1553,11 @@ def chatbot(
 
         if result["success"]:
 
-            answer = (
-                "🤖 Source: Gemini AI\n\n"
-                + result["answer"]
-            )
+            # answer = (
+            #     "🤖 Source: Gemini AI\n\n"
+            #     + result["answer"]
+            # )
+            answer = result["answer"]
 
 
             save_session(
