@@ -22,7 +22,7 @@ print(
 # MAIN CHAT HANDLER
 # =====================================================
 
-def chat(message, history, pdf_file):
+def chat(message, history, pdf_files):
     """
     Handle chat requests from the Gradio UI.
 
@@ -54,7 +54,7 @@ def chat(message, history, pdf_file):
         answer = chatbot(
             message,
             history,
-            pdf_file
+            pdf_files
         )
 
     except Exception as e:
@@ -96,16 +96,16 @@ def chat(message, history, pdf_file):
     # =================================================
 
     try:
-        update_stats(
-            answer
-        )
+        statistics = get_statistics()
 
     except Exception as e:
         print(
-            "Statistics Error:",
+            "Get Statistics Error:",
             e
         )
 
+        statistics = ""
+        
     # =================================================
     # DEBUG OUTPUT
     # =================================================

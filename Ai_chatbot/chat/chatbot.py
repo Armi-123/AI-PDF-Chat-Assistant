@@ -15,7 +15,7 @@ from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_title,
 )
-
+from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
 
@@ -1225,11 +1225,12 @@ def chatbot(
 
         if result["success"]:
 
-            # answer = (
-            #     "🤖 Source: Gemini AI\n\n"
-            #     + result["answer"]
-            # )
             answer = result["answer"]
+
+            update_stats(
+                answer,
+                source="gemini"
+            )
 
             save_session(
                 message,
@@ -1335,6 +1336,10 @@ def chatbot(
                 pdf_files
             )
 
+            update_stats(
+                answer,
+                source="pdf"
+            )
 
             save_session(
                 message,
@@ -1364,6 +1369,11 @@ def chatbot(
 
 
     if metadata_answer:
+        
+        update_stats(
+            answer,
+            source="pdf"
+        )
 
         save_session(
             message,
@@ -1400,7 +1410,10 @@ def chatbot(
 
         answer = direct_answer
 
-
+        update_stats(
+            answer,
+            source="pdf"
+        )
         save_session(
             message,
             answer
@@ -1442,7 +1455,10 @@ def chatbot(
 
             answer = pdf_section_answer
 
-
+            update_stats(
+                answer,
+                source="pdf"
+            )
             save_session(
                 message,
                 answer
@@ -1559,7 +1575,10 @@ def chatbot(
             # )
             answer = result["answer"]
 
-
+            update_stats(
+                answer,
+                source="pdf"
+            )
             save_session(
                 message,
                 answer
@@ -1577,7 +1596,10 @@ def chatbot(
             relevant_text
         )
 
-
+        update_stats(
+            answer,
+            source="pdf"
+        )
         save_session(
             message,
             answer

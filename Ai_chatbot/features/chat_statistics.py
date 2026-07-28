@@ -1,8 +1,9 @@
 import time
 
-# -----------------------------
-# Global Statistics
-# -----------------------------
+
+# =====================================================
+# GLOBAL STATISTICS
+# =====================================================
 
 start_time = time.time()
 
@@ -12,42 +13,76 @@ gemini_answers = 0
 total_words = 0
 
 
-# -----------------------------
-# Update Statistics
-# -----------------------------
-def update_stats(answer):
+# =====================================================
+# UPDATE STATISTICS
+# =====================================================
+
+def update_stats(
+    answer,
+    source="unknown"
+):
 
     global total_questions
     global pdf_answers
     global gemini_answers
     global total_words
 
-    print("Before:", total_questions)
+
+    # -------------------------------------------------
+    # COUNT TOTAL QUESTIONS
+    # -------------------------------------------------
 
     total_questions += 1
 
-    if "📄 Source: Uploaded PDF" in answer:
+
+    # -------------------------------------------------
+    # COUNT ANSWER SOURCE
+    # -------------------------------------------------
+
+    if source == "pdf":
+
         pdf_answers += 1
-    elif "🤖 Source: Gemini AI" in answer:
+
+
+    elif source == "gemini":
+
         gemini_answers += 1
 
-    total_words += len(answer.split())
 
-    print("After:", total_questions)
+    # -------------------------------------------------
+    # COUNT GENERATED WORDS
+    # -------------------------------------------------
+
+    if answer:
+
+        total_words += len(
+            answer.split()
+        )
 
 
-# -----------------------------
-# Get Statistics
-# -----------------------------
+# =====================================================
+# GET STATISTICS
+# =====================================================
+
 def get_statistics():
 
-    duration = int(time.time() - start_time)
+    duration = int(
+        time.time()
+        - start_time
+    )
+
 
     minutes = duration // 60
+
     seconds = duration % 60
+
+
+    # -------------------------------------------------
+    # DISPLAY COMPACT STATISTICS
+    # -------------------------------------------------
 
     return f"""
 ### 📊 Chat Statistics
 
-💬 Questions Asked : **{total_questions}** 📄 PDF Answers : **{pdf_answers}** 🤖 Gemini Answers : **{gemini_answers}**
+💬 Questions Asked: **{total_questions}** | 📄 PDF Answers: **{pdf_answers}** | 🤖 Gemini Answers: **{gemini_answers}**
 """
