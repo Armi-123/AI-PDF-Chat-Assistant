@@ -1267,18 +1267,14 @@ def chatbot(
     # 5. PDF DEBUG INFORMATION
     # =====================================================
 
-    print("=" * 60)
-
     print(
-        "PDF CHATBOT STARTED"
+        "PDF CONTENT LOADED SUCCESSFULLY."
     )
 
     print(
-        "PDF FILES:",
-        pdf_files
+        "EXTRACTED PDF TEXT LENGTH:",
+        len(pdf_content)
     )
-
-    print("=" * 60)
 
 
     # =====================================================
@@ -1335,6 +1331,11 @@ def chatbot(
             answer = summarize_pdf(
                 pdf_files
             )
+            
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + answer
+            )
 
             update_stats(
                 answer,
@@ -1370,8 +1371,13 @@ def chatbot(
 
     if metadata_answer:
         
+        metadata_answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + metadata_answer
+        )
+                
         update_stats(
-            answer,
+            metadata_answer,
             source="pdf"
         )
 
@@ -1403,12 +1409,10 @@ def chatbot(
 
     if direct_answer:
 
-        print(
-            "DIRECT PDF ANSWER FOUND"
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + direct_answer
         )
-
-
-        answer = direct_answer
 
         update_stats(
             answer,
@@ -1453,7 +1457,10 @@ def chatbot(
             )
 
 
-            answer = pdf_section_answer
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + pdf_section_answer
+            )
 
             update_stats(
                 answer,
@@ -1491,14 +1498,6 @@ def chatbot(
                 message
             )
 
-
-            if relevant_text:
-
-                print(
-                    "KEYWORD SEARCH FOUND RELEVANT PDF CONTENT"
-                )
-
-
         except Exception as e:
 
             print(
@@ -1526,30 +1525,6 @@ def chatbot(
 
 
     # =====================================================
-    # 14. DEBUG SEARCH RESULT
-    # =====================================================
-
-    print("=" * 60)
-
-    print(
-        "USER QUESTION:",
-        message
-    )
-
-    print(
-        "RELEVANT PDF CONTEXT:"
-    )
-
-    print(
-        relevant_text[:2000]
-        if relevant_text
-        else "NOT FOUND"
-    )
-
-    print("=" * 60)
-
-
-    # =====================================================
     # 15. PDF CONTEXT FOUND
     # =====================================================
 
@@ -1561,6 +1536,16 @@ def chatbot(
             conversation=conversation,
             pdf_fallback=False
         )
+        
+        answer = (
+            "🤖 Gemini AI + 📄 PDF Context\n\n"
+            + result["answer"]
+        )
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
 
 
         # -------------------------------------------------
@@ -1569,15 +1554,14 @@ def chatbot(
 
         if result["success"]:
 
-            # answer = (
-            #     "🤖 Source: Gemini AI\n\n"
-            #     + result["answer"]
-            # )
-            answer = result["answer"]
+            answer = (
+                "🤖 Gemini AI + 📄 PDF Context\n\n"
+                + result["answer"]
+            )
 
             update_stats(
                 answer,
-                source="pdf"
+                source="gemini"
             )
             save_session(
                 message,
@@ -1596,6 +1580,13 @@ def chatbot(
             relevant_text
         )
 
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + pdf_context_fallback(
+                relevant_text
+            )
+        )
+        
         update_stats(
             answer,
             source="pdf"
@@ -1614,19 +1605,60 @@ def chatbot(
     # =====================================================
 
     print(
-        "PDF INFORMATION NOT FOUND"
+        "PDF context not found. Using Gemini fallback."
+    )
+
+    result = ask_gemini(
+        message=message,
+        pdf_context="",
+        conversation=conversation,
+        pdf_fallback=True
     )
 
 
-    answer = (
-        "Information not found in uploaded PDF."
+    # =====================================================
+    # GEMINI FALLBACK SUCCESS
+    # =====================================================
+
+    if result["success"]:
+
+        answer = result["answer"]
+
+        update_stats(
+            answer,
+            source="gemini"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
+
+
+    # =====================================================
+    # GEMINI FALLBACK FAILED
+    # =====================================================
+
+    if result["error_type"] == "quota":
+
+        return (
+            "⚠ Gemini API quota exceeded.\n\n"
+            "Please wait and try again later "
+            "or use another Gemini API key."
+        )
+
+
+    if result["error_type"] == "busy":
+
+        return (
+            "⚠ Gemini server is currently busy.\n\n"
+            "Please try again after a few seconds."
+        )
+
+
+    return (
+        "Information not found in uploaded PDF, "
+        "and Gemini could not generate a response."
     )
-
-
-    save_session(
-        message,
-        answer
-    )
-
-
-    return answer
