@@ -1139,6 +1139,77 @@ def handle_pdf_metadata_query(
     return ""
 
 
+# ===================================================== 
+# CHECK WHETHER QUESTION IS RELATED TO PDF 
+# =====================================================
+
+def is_relevant_to_pdf(
+    question,
+    pdf_content,
+    threshold=0.08
+):
+    """
+    Dynamically determine whether the user's
+    question is related to the uploaded PDF.
+
+    Uses the existing PDF search system rather
+    than hard-coded question patterns.
+    """
+
+    if not question or not pdf_content:
+        return False
+
+    try:
+
+        relevant_text = find_relevant_text(
+            pdf_content,
+            question
+        )
+
+        if not relevant_text:
+            return False
+
+        # Calculate how much of the PDF search
+        # result actually overlaps with the question.
+        question_words = set(
+            question.lower().split()
+        )
+
+        context_words = set(
+            relevant_text.lower().split()
+        )
+
+        if not question_words:
+            return False
+
+        overlap = (
+            question_words
+            & context_words
+        )
+
+        relevance_score = (
+            len(overlap)
+            / len(question_words)
+        )
+
+        print(
+            f"PDF relevance score: "
+            f"{relevance_score:.2f}"
+        )
+
+        return (
+            relevance_score >= threshold
+        )
+
+    except Exception as e:
+
+        print(
+            "PDF relevance check failed:",
+            e
+        )
+
+        return False
+    
 # =====================================================
 # CHATBOT
 # =====================================================
@@ -1428,7 +1499,7 @@ def chatbot(
     if section_text:
 
         print(
-            "SECTION SEARCH FOUND"
+            "PDF SECTION MATCH FOUND"
         )
 
 
@@ -1440,20 +1511,18 @@ def chatbot(
 
         if pdf_section_answer:
 
-            print(
-                "SECTION PDF ANSWER FOUND"
-            )
-
-
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
                 + pdf_section_answer
             )
 
+
             update_stats(
                 answer,
                 source="pdf"
             )
+
+
             save_session(
                 message,
                 answer
@@ -1465,14 +1534,8 @@ def chatbot(
 
         else:
 
-            print(
-                "SECTION CONTENT FOUND - USING GEMINI"
-            )
-
-
             relevant_text = section_text
-
-
+            
     # =====================================================
     # 12. KEYWORD SEARCH
     # =====================================================
@@ -1486,34 +1549,18 @@ def chatbot(
                 message
             )
 
+
         except Exception as e:
 
             print(
-                "Keyword Search Error:",
+                "PDF Search Error:",
                 e
             )
 
             relevant_text = ""
-
-
+            
     # =====================================================
-    # 13. LIMIT PDF CONTEXT
-    # =====================================================
-
-    if relevant_text:
-
-        relevant_text = relevant_text.strip()
-
-
-        if len(relevant_text) > MAX_PDF_CONTEXT:
-
-            relevant_text = relevant_text[
-                :MAX_PDF_CONTEXT
-            ]
-
-
-    # =====================================================
-    # 15. PDF CONTEXT FOUND
+    # 13. PDF CONTEXT FOUND
     # =====================================================
 
     if relevant_text:
@@ -1524,33 +1571,26 @@ def chatbot(
             conversation=conversation,
             pdf_fallback=False
         )
-        
-        answer = (
-            "🤖 Gemini AI + 📄 PDF Context\n\n"
-            + result["answer"]
-        )
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
 
 
         # -------------------------------------------------
-        # GEMINI SUCCESS
+        # GEMINI SUCCESS WITH PDF CONTEXT
         # -------------------------------------------------
 
         if result["success"]:
 
             answer = (
-                "🤖 Gemini AI + 📄 PDF Context\n\n"
+                "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
                 + result["answer"]
             )
+
 
             update_stats(
                 answer,
                 source="gemini"
             )
+
+
             save_session(
                 message,
                 answer
@@ -1561,12 +1601,8 @@ def chatbot(
 
 
         # -------------------------------------------------
-        # GEMINI FAILED - RETURN PDF CONTEXT
+        # GEMINI FAILED - PDF FALLBACK
         # -------------------------------------------------
-
-        answer = pdf_context_fallback(
-            relevant_text
-        )
 
         answer = (
             "📄 Source: Uploaded PDF\n\n"
@@ -1574,11 +1610,14 @@ def chatbot(
                 relevant_text
             )
         )
-        
+
+
         update_stats(
             answer,
             source="pdf"
         )
+
+
         save_session(
             message,
             answer
@@ -1587,14 +1626,9 @@ def chatbot(
 
         return answer
 
-
     # =====================================================
-    # 16. INFORMATION NOT FOUND IN PDF
+    # 14. PDF CONTEXT NOT FOUND
     # =====================================================
-
-    print(
-        "PDF context not found. Using Gemini fallback."
-    )
 
     result = ask_gemini(
         message=message,
@@ -1605,7 +1639,7 @@ def chatbot(
 
 
     # =====================================================
-    # GEMINI FALLBACK SUCCESS
+    # GEMINI GENERAL KNOWLEDGE SUCCESS
     # =====================================================
 
     if result["success"]:
@@ -1615,15 +1649,18 @@ def chatbot(
             + result["answer"]
         )
 
+
         update_stats(
             answer,
             source="gemini"
         )
 
+
         save_session(
             message,
             answer
         )
+
 
         return answer
 
@@ -1650,6 +1687,5 @@ def chatbot(
 
 
     return (
-        "Information not found in uploaded PDF, "
-        "and Gemini could not generate a response."
+        "⚠ Unable to generate a response right now."
     )
