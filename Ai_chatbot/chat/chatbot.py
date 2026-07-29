@@ -872,44 +872,28 @@ def normalize_pdf_files(
 # EXTRACT ALL PDF TEXT
 # =====================================================
 
-def extract_all_pdf_text(
-    pdf_files
-):
+def extract_all_pdf_text(pdf_files):
 
     combined_text = ""
-
 
     for pdf in pdf_files:
 
         try:
-
-            text = extract_pdf_text(
-                pdf
-            )
-
-            text = clean_pdf_text(
-                text
-            )
+            text = extract_pdf_text(pdf)
+            text = clean_pdf_text(text)
 
             if text:
-
                 combined_text += (
-                    "\n\n"
-                    f"========== "
-                    f"{os.path.basename(pdf)} "
-                    f"==========\n\n"
+                    f"\n\n===== {os.path.basename(pdf)} =====\n\n"
                     f"{text}"
                 )
-
 
         except Exception as e:
 
             print(
-                f"PDF Extraction Error "
-                f"({pdf}):",
-                e
+                f"⚠ PDF extraction failed: "
+                f"{os.path.basename(pdf)}"
             )
-
 
     return combined_text.strip()
 
@@ -1207,6 +1191,7 @@ def chatbot(
     pdf_files = normalize_pdf_files(
         pdf_files
     )
+    pdf_content = ""
 
 
     # =====================================================
@@ -1225,7 +1210,10 @@ def chatbot(
 
         if result["success"]:
 
-            answer = result["answer"]
+            answer = (
+                "🤖 Source: Gemini AI\n\n"
+                + result["answer"]
+            )
 
             update_stats(
                 answer,
@@ -1622,7 +1610,10 @@ def chatbot(
 
     if result["success"]:
 
-        answer = result["answer"]
+        answer = (
+            "🤖 Source: Gemini AI\n\n"
+            + result["answer"]
+        )
 
         update_stats(
             answer,
