@@ -1143,61 +1143,43 @@ def handle_pdf_metadata_query(
 
 def is_relevant_to_pdf(
     question,
-    pdf_content,
-    threshold=0.08
+    semantic_index,
+    semantic_chunks,
+    min_score=SEMANTIC_MIN_SCORE
 ):
     """
-    Dynamically determine whether the user's
-    question is related to the uploaded PDF.
-
-    Uses the existing PDF search system rather
-    than hard-coded question patterns.
+    Determine whether the user's question is
+    related to the uploaded PDF using semantic search.
     """
 
-    if not question or not pdf_content:
+    if not question:
+        return False
+
+    if semantic_index is None:
+        return False
+
+    if not semantic_chunks:
         return False
 
     try:
 
-        relevant_text = find_relevant_text(
-            pdf_content,
-            question
+        relevant_text = semantic_search(
+            index=semantic_index,
+            chunks=semantic_chunks,
+            query=question,
+            top_k=1,
+            min_score=min_score
         )
 
-        if not relevant_text:
-            return False
+        if relevant_text:
 
-        # Calculate how much of the PDF search
-        # result actually overlaps with the question.
-        question_words = set(
-            re.findall(r"[a-zA-Z0-9]+", question.lower())
-        )
+            print("PDF Related: True")
 
-        context_words = set(
-            re.findall(r"[a-zA-Z0-9]+", relevant_text.lower())
-        )
+            return True
 
-        if not question_words:
-            return False
+        print("PDF Related: False")
 
-        overlap = (
-            question_words
-            & context_words
-        )
-
-        relevance_score = (
-            len(overlap)
-            / len(question_words)
-        )
-
-        print(
-            f"PDF relevance score: "
-            f"{relevance_score:.2f}"
-        )
-
-        return (
-            relevance_score >= threshold
-        )
+        return False
 
     except Exception as e:
 
@@ -1463,22 +1445,27 @@ def chatbot(
     # ------------------------------------------------
 
     pdf_related = (
+
+        bool(find_direct_pdf_answer(
+            message,
+            pdf_content
+        ))
+
+        or
+
+        bool(find_section_content(
+            message,
+            pdf_content
+        ))
+
+        or
+
         is_relevant_to_pdf(
             question=message,
-            pdf_content=pdf_content
+            semantic_index=semantic_index,
+            semantic_chunks=semantic_chunks
         )
-        or bool(
-            find_direct_pdf_answer(
-                message,
-                pdf_content
-            )
-        )
-        or bool(
-            find_section_content(
-                message,
-                pdf_content
-            )
-        )
+
     )
 
     print(
@@ -1548,8 +1535,9 @@ def chatbot(
             try:
 
                 relevant_text = semantic_search(
-                    semantic_index,
-                    message,
+                    query=message,
+                    index=semantic_index,
+                    chunks=semantic_chunks,
                     top_k=SEMANTIC_TOP_K,
                     min_score=SEMANTIC_MIN_SCORE
                 )

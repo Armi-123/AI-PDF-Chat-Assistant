@@ -123,9 +123,9 @@ def build_index(pdf_text):
 # ==========================================================
 
 def semantic_search(
-    query,
     index,
     chunks,
+    query,
     top_k=5,
     min_score=0.30
 ):
