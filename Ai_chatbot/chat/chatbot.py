@@ -1322,31 +1322,17 @@ def chatbot(
         )
 
 
-    # =====================================================
-    # 5. PDF DEBUG INFORMATION
-    # =====================================================
 
+
+    # =====================================================
+    # 5. EXTRACT ALL PDF TEXT
+    # =====================================================
     print(
         "PDF CONTENT LOADED SUCCESSFULLY."
     )
-
-    print(
-        "EXTRACTED PDF TEXT LENGTH:",
-        len(pdf_content)
-    )
-
-
-    # =====================================================
-    # 6. EXTRACT ALL PDF TEXT
-    # =====================================================
 
     pdf_content = extract_all_pdf_text(
         pdf_files
-    )
-
-
-    print(
-        "PDF CONTENT LOADED SUCCESSFULLY."
     )
 
     print(
@@ -1364,7 +1350,7 @@ def chatbot(
 
 
     # =====================================================
-    # 7. PDF SUMMARY QUERY
+    # 6. PDF SUMMARY QUERY
     # =====================================================
 
     question_lower = message.lower()
@@ -1419,7 +1405,7 @@ def chatbot(
 
 
     # =====================================================
-    # 8. PDF METADATA QUERY
+    # 7. PDF METADATA QUERY
     # =====================================================
 
     metadata_answer = handle_pdf_metadata_query(
@@ -1442,21 +1428,13 @@ def chatbot(
 
         save_session(
             message,
-            metadata_answer
+            answer
         )
 
-        return metadata_answer
-
-
-    # =====================================================
-    # 9. INITIALIZE SEARCH RESULT
-    # =====================================================
-
-    relevant_text = ""
-
+        return answer
 
     # =====================================================
-    # 10. DIRECT PDF FACT SEARCH
+    # 8. DIRECT PDF FACT SEARCH
     # =====================================================
 
     direct_answer = find_direct_pdf_answer(
@@ -1485,161 +1463,220 @@ def chatbot(
 
         return answer
 
-
     # =====================================================
-    # 11. SECTION-AWARE PDF SEARCH
+    # 9. PDF-RELATED QUESTION SEARCH
     # =====================================================
 
-    section_text = find_section_content(
-        question=message,
-        pdf_content=pdf_content
+    pdf_keywords = [
+        # Resume / profile
+        "resume",
+        "cv",
+        "candidate",
+        "profile",
+
+        # Personal information
+        "name",
+        "phone",
+        "mobile",
+        "email",
+        "contact",
+        "linkedin",
+        "github",
+
+        # Resume sections
+        "experience",
+        "internship",
+        "internships",
+        "education",
+        "degree",
+        "qualification",
+        "project",
+        "projects",
+        "skill",
+        "skills",
+        "technical skills",
+        "technologies",
+        "certification",
+        "certifications",
+
+        # PDF-specific
+        "uploaded pdf",
+        "this pdf",
+        "the pdf",
+        "document",
+        "according to the pdf",
+        "according to this document",
+        "mentioned in the pdf",
+        "listed in the pdf",
+        "included in the pdf",
+    ]
+
+    pdf_related = any(
+        keyword in question_lower
+        for keyword in pdf_keywords
+    )
+
+    print(
+        "PDF RELATED:",
+        pdf_related
     )
 
 
-    if section_text:
+    # =====================================================
+    # 10. PDF-RELATED QUESTION SEARCH
+    # =====================================================
 
-        print(
-            "PDF SECTION MATCH FOUND"
-        )
+    if pdf_related:
 
+        # -------------------------------------------------
+        # SECTION-AWARE SEARCH
+        # -------------------------------------------------
 
-        pdf_section_answer = format_pdf_section_answer(
+        section_text = find_section_content(
             question=message,
-            section_text=section_text
+            pdf_content=pdf_content
         )
 
+        if section_text:
 
-        if pdf_section_answer:
+            print(
+                "PDF SECTION MATCH FOUND"
+            )
+
+            pdf_section_answer = format_pdf_section_answer(
+                question=message,
+                section_text=section_text
+            )
+
+            if pdf_section_answer:
+
+                answer = (
+                    "📄 Source: Uploaded PDF\n\n"
+                    + pdf_section_answer
+                )
+
+                update_stats(
+                    answer,
+                    source="pdf"
+                )
+
+                save_session(
+                    message,
+                    answer
+                )
+
+                return answer
+
+            # Section found but formatted answer
+            # could not be generated.
+            # Use section text as PDF context.
+
+            relevant_text = section_text
+
+
+        # -------------------------------------------------
+        # GENERIC PDF KEYWORD SEARCH
+        # -------------------------------------------------
+
+        if not relevant_text:
+
+            try:
+
+                relevant_text = find_relevant_text(
+                    pdf_text=pdf_content,
+                    question=message
+                )
+
+            except Exception as e:
+
+                print(
+                    "PDF Search Error:",
+                    e
+                )
+
+                relevant_text = ""
+
+
+        # -------------------------------------------------
+        # PDF CONTEXT FOUND
+        # -------------------------------------------------
+
+        if relevant_text:
+
+            result = ask_gemini(
+                message=message,
+                pdf_context=relevant_text,
+                conversation=conversation,
+                pdf_fallback=False
+            )
+
+
+            # -------------------------------------------------
+            # GEMINI SUCCESS WITH PDF CONTEXT
+            # -------------------------------------------------
+
+            if result["success"]:
+
+                answer = (
+                    "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
+                    + result["answer"]
+                )
+
+                update_stats(
+                    answer,
+                    source="gemini"
+                )
+
+                save_session(
+                    message,
+                    answer
+                )
+
+                return answer
+
+
+            # -------------------------------------------------
+            # GEMINI FAILED - PDF FALLBACK
+            # -------------------------------------------------
 
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
-                + pdf_section_answer
+                + pdf_context_fallback(
+                    relevant_text
+                )
             )
-
 
             update_stats(
                 answer,
                 source="pdf"
             )
 
-
             save_session(
                 message,
                 answer
             )
 
-
             return answer
 
 
-        else:
-
-            relevant_text = section_text
-            
     # =====================================================
-    # 12. KEYWORD SEARCH
+    # 11. GENERAL GEMINI QUESTION
     # =====================================================
 
-    if not relevant_text:
-
-        try:
-
-            relevant_text = find_relevant_text(
-                pdf_content,
-                message
-            )
-
-
-        except Exception as e:
-
-            print(
-                "PDF Search Error:",
-                e
-            )
-
-            relevant_text = ""
-            
-    # =====================================================
-    # 13. PDF CONTEXT FOUND
-    # =====================================================
-
-    if relevant_text:
-
-        result = ask_gemini(
-            message=message,
-            pdf_context=relevant_text,
-            conversation=conversation,
-            pdf_fallback=False
-        )
-
-
-        # -------------------------------------------------
-        # GEMINI SUCCESS WITH PDF CONTEXT
-        # -------------------------------------------------
-
-        if result["success"]:
-
-            answer = (
-                "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
-                + result["answer"]
-            )
-
-
-            update_stats(
-                answer,
-                source="gemini"
-            )
-
-
-            save_session(
-                message,
-                answer
-            )
-
-
-            return answer
-
-
-        # -------------------------------------------------
-        # GEMINI FAILED - PDF FALLBACK
-        # -------------------------------------------------
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + pdf_context_fallback(
-                relevant_text
-            )
-        )
-
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-
-
-        save_session(
-            message,
-            answer
-        )
-
-
-        return answer
-
-    # =====================================================
-    # 14. PDF CONTEXT NOT FOUND
-    # =====================================================
+    print(
+        "GENERAL QUESTION - USING GEMINI ONLY"
+    )
 
     result = ask_gemini(
         message=message,
         pdf_context="",
         conversation=conversation,
-        pdf_fallback=True
+        pdf_fallback=False
     )
 
 
     # =====================================================
-    # GEMINI GENERAL KNOWLEDGE SUCCESS
+    # 12. GEMINI SUCCESS
     # =====================================================
 
     if result["success"]:
@@ -1649,24 +1686,21 @@ def chatbot(
             + result["answer"]
         )
 
-
         update_stats(
             answer,
             source="gemini"
         )
-
 
         save_session(
             message,
             answer
         )
 
-
         return answer
 
 
     # =====================================================
-    # GEMINI FALLBACK FAILED
+    # 13. GEMINI QUOTA ERROR
     # =====================================================
 
     if result["error_type"] == "quota":
@@ -1678,6 +1712,10 @@ def chatbot(
         )
 
 
+    # =====================================================
+    # 14. GEMINI BUSY ERROR
+    # =====================================================
+
     if result["error_type"] == "busy":
 
         return (
@@ -1685,6 +1723,10 @@ def chatbot(
             "Please try again after a few seconds."
         )
 
+
+    # =====================================================
+    # 15. GEMINI OTHER ERROR
+    # =====================================================
 
     return (
         "⚠ Unable to generate a response right now."
