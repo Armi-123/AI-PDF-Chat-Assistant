@@ -9,20 +9,17 @@ from config.gemini_config import client
 from pdf.pdf_search import (
     find_relevant_text,
 )
+
 from pdf.pdf_summary import summarize_pdf
 
 from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_title,
 )
+from utils.semantic_search import semantic_search,build_index
 from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
-
-from utils.semantic_search import (
-    build_index,
-    semantic_search,
-)
 
 # =====================================================
 # CONFIGURATION
@@ -165,17 +162,17 @@ def find_direct_pdf_answer(
 
     if "linkedin" in question_lower:
 
-        linkedin = re.findall(
+        match = re.search(
             r"https?://(?:www\.)?linkedin\.com/[^\s]+",
             pdf_content,
             re.IGNORECASE
         )
 
-        if linkedin:
+        if match:
+            return match.group(0)
 
-            return "\n".join(
-                dict.fromkeys(linkedin)
-            )
+        if "linkedin" in pdf_content.lower():
+            return "LinkedIn profile is mentioned in the uploaded PDF, but the actual URL is not available."
 
 
     # =================================================
@@ -184,18 +181,17 @@ def find_direct_pdf_answer(
 
     if "github" in question_lower:
 
-        github = re.findall(
+        match = re.search(
             r"https?://(?:www\.)?github\.com/[^\s]+",
             pdf_content,
             re.IGNORECASE
         )
 
-        if github:
+        if match:
+            return match.group(0)
 
-            return "\n".join(
-                dict.fromkeys(github)
-            )
-
+        if "github" in pdf_content.lower():
+            return "GitHub profile is mentioned in the uploaded PDF, but the actual URL is not available."
 
     # =================================================
     # CANDIDATE NAME
@@ -688,7 +684,9 @@ Answer:
     # GEMINI API REQUEST
     # =================================================
 
-    for attempt in range(3):
+    MAX_RETRIES = 3
+
+    for attempt in range(MAX_RETRIES):
 
         try:
 
@@ -1172,11 +1170,11 @@ def is_relevant_to_pdf(
         # Calculate how much of the PDF search
         # result actually overlaps with the question.
         question_words = set(
-            question.lower().split()
+            re.findall(r"[a-zA-Z0-9]+", question.lower())
         )
 
         context_words = set(
-            relevant_text.lower().split()
+            re.findall(r"[a-zA-Z0-9]+", relevant_text.lower())
         )
 
         if not question_words:
@@ -1242,7 +1240,7 @@ def chatbot(
     try:
 
         conversation = build_conversation(
-            history
+            history or []
         )
 
     except Exception as e:
@@ -1262,7 +1260,10 @@ def chatbot(
     pdf_files = normalize_pdf_files(
         pdf_files
     )
+
     pdf_content = ""
+    relevant_text = ""
+    answer = ""
 
 
     # =====================================================
@@ -1321,40 +1322,31 @@ def chatbot(
             "right now."
         )
 
-
-
-
     # =====================================================
     # 5. EXTRACT ALL PDF TEXT
     # =====================================================
-    print(
-        "PDF CONTENT LOADED SUCCESSFULLY."
-    )
 
     pdf_content = extract_all_pdf_text(
         pdf_files
     )
 
-    print(
-        "EXTRACTED PDF TEXT LENGTH:",
-        len(pdf_content)
+    semantic_index, semantic_chunks = build_index(
+        pdf_content
     )
 
-
-    if not pdf_content:
-
-        return (
-            "⚠ Unable to extract text from "
-            "the uploaded PDF."
-        )
-
+    print(
+        f"PDF Loaded ({len(pdf_content)} characters)"
+    )
 
     # =====================================================
     # 6. PDF SUMMARY QUERY
     # =====================================================
 
-    question_lower = message.lower()
-
+    question_lower = message.lower().strip()
+    
+    # ------------------------------------------------
+    # Always initialize
+    # ------------------------------------------------
 
     is_summary_request = any(
         keyword in question_lower
@@ -1362,6 +1354,9 @@ def chatbot(
             "summarize",
             "summarise",
             "summary",
+            "overview",
+            "summarize pdf",
+            "summarize this resume",
             "brief summary",
             "give me an overview",
             "overview of the pdf"
@@ -1428,10 +1423,10 @@ def chatbot(
 
         save_session(
             message,
-            answer
+            metadata_answer
         )
 
-        return answer
+        return metadata_answer
 
     # =====================================================
     # 8. DIRECT PDF FACT SEARCH
@@ -1463,64 +1458,33 @@ def chatbot(
 
         return answer
 
-    # =====================================================
-    # 9. PDF-RELATED QUESTION SEARCH
-    # =====================================================
+    # ------------------------------------------------
+    # 9.Dynamic PDF Detection
+    # ------------------------------------------------
 
-    pdf_keywords = [
-        # Resume / profile
-        "resume",
-        "cv",
-        "candidate",
-        "profile",
-
-        # Personal information
-        "name",
-        "phone",
-        "mobile",
-        "email",
-        "contact",
-        "linkedin",
-        "github",
-
-        # Resume sections
-        "experience",
-        "internship",
-        "internships",
-        "education",
-        "degree",
-        "qualification",
-        "project",
-        "projects",
-        "skill",
-        "skills",
-        "technical skills",
-        "technologies",
-        "certification",
-        "certifications",
-
-        # PDF-specific
-        "uploaded pdf",
-        "this pdf",
-        "the pdf",
-        "document",
-        "according to the pdf",
-        "according to this document",
-        "mentioned in the pdf",
-        "listed in the pdf",
-        "included in the pdf",
-    ]
-
-    pdf_related = any(
-        keyword in question_lower
-        for keyword in pdf_keywords
+    pdf_related = (
+        is_relevant_to_pdf(
+            question=message,
+            pdf_content=pdf_content
+        )
+        or bool(
+            find_direct_pdf_answer(
+                message,
+                pdf_content
+            )
+        )
+        or bool(
+            find_section_content(
+                message,
+                pdf_content
+            )
+        )
     )
 
     print(
         "PDF RELATED:",
         pdf_related
     )
-
 
     # =====================================================
     # 10. PDF-RELATED QUESTION SEARCH
@@ -1574,25 +1538,25 @@ def chatbot(
             relevant_text = section_text
 
 
-        # -------------------------------------------------
-        # GENERIC PDF KEYWORD SEARCH
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # If section search didn't find anything,
+        # use semantic PDF search.
+        # ---------------------------------------------
 
         if not relevant_text:
 
             try:
 
-                relevant_text = find_relevant_text(
-                    pdf_text=pdf_content,
-                    question=message
+                relevant_text = semantic_search(
+                    semantic_index,
+                    message,
+                    top_k=SEMANTIC_TOP_K,
+                    min_score=SEMANTIC_MIN_SCORE
                 )
 
             except Exception as e:
 
-                print(
-                    "PDF Search Error:",
-                    e
-                )
+                print("PDF Search Error:", e)
 
                 relevant_text = ""
 
@@ -1601,7 +1565,11 @@ def chatbot(
         # PDF CONTEXT FOUND
         # -------------------------------------------------
 
-        if relevant_text:
+        if not relevant_text:
+
+            print("No relevant PDF context found.")
+
+        else:
 
             result = ask_gemini(
                 message=message,
@@ -1642,7 +1610,7 @@ def chatbot(
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
                 + pdf_context_fallback(
-                    relevant_text
+                    relevant_text[:MAX_PDF_CONTEXT]
                 )
             )
 
@@ -1662,11 +1630,7 @@ def chatbot(
     # =====================================================
     # 11. GENERAL GEMINI QUESTION
     # =====================================================
-
-    print(
-        "GENERAL QUESTION - USING GEMINI ONLY"
-    )
-
+    
     result = ask_gemini(
         message=message,
         pdf_context="",

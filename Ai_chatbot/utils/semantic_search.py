@@ -2,132 +2,91 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 
+# ==========================================================
+# LOAD MODEL (ONLY ONCE)
+# ==========================================================
 
-# =====================================================
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# ==========================================================
 # CACHE
-# =====================================================
+# ==========================================================
 
-cached_index = None
-cached_chunks = None
-cached_embeddings = None
-cached_pdf_hash = None
+_cached_hash = None
+_cached_index = None
+_cached_chunks = None
 
-
-# =====================================================
-# LOAD EMBEDDING MODEL ONCE
-# =====================================================
-
-model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
-
-
-# =====================================================
-# CREATE CHUNKS
-# =====================================================
+# ==========================================================
+# CREATE TEXT CHUNKS
+# ==========================================================
 
 def create_chunks(
     text,
     chunk_size=700,
     overlap=150
 ):
-    """
-    Split PDF text into overlapping chunks.
-
-    Larger chunks give the model more context,
-    while overlap prevents important information
-    from being cut between chunks.
-    """
 
     if not text:
         return []
 
-    text = text.replace("\r", "")
-    text = text.replace("\t", " ")
-
-    # Clean excessive spaces
     text = " ".join(
-        text.split()
+        text.replace("\r", "")
+            .replace("\t", " ")
+            .split()
     )
 
     chunks = []
 
-    start = 0
-
     step = chunk_size - overlap
 
-    while start < len(text):
+    for start in range(
+        0,
+        len(text),
+        step
+    ):
 
-        end = start + chunk_size
-
-        chunk = text[start:end].strip()
+        chunk = text[
+            start:start + chunk_size
+        ].strip()
 
         if chunk:
-            chunks.append(chunk)
 
-        start += step
+            chunks.append(chunk)
 
     return chunks
 
 
-# =====================================================
-# BUILD FAISS INDEX
-# =====================================================
+# ==========================================================
+# BUILD INDEX
+# ==========================================================
 
-def build_index(text):
+def build_index(pdf_text):
 
-    global cached_index
-    global cached_chunks
-    global cached_embeddings
-    global cached_pdf_hash
+    global _cached_hash
+    global _cached_index
+    global _cached_chunks
 
-    # ---------------------------------------------
-    # Empty PDF
-    # ---------------------------------------------
-
-    if not text or not text.strip():
+    if not pdf_text:
 
         return None, []
 
-
-    # ---------------------------------------------
-    # Create hash for caching
-    # ---------------------------------------------
-
-    pdf_hash = hash(text)
-
-
-    # ---------------------------------------------
-    # Return cached index
-    # ---------------------------------------------
+    pdf_hash = hash(pdf_text)
 
     if (
-        cached_pdf_hash == pdf_hash
-        and cached_index is not None
-        and cached_chunks is not None
+        pdf_hash == _cached_hash
+        and _cached_index is not None
     ):
 
         return (
-            cached_index,
-            cached_chunks
+            _cached_index,
+            _cached_chunks
         )
 
-
-    # ---------------------------------------------
-    # Create chunks
-    # ---------------------------------------------
-
-    chunks = create_chunks(text)
-
+    chunks = create_chunks(pdf_text)
 
     if not chunks:
 
         return None, []
-
-
-    # ---------------------------------------------
-    # Generate embeddings
-    # ---------------------------------------------
 
     embeddings = model.encode(
         chunks,
@@ -135,61 +94,23 @@ def build_index(text):
         show_progress_bar=False
     )
 
-
-    # ---------------------------------------------
-    # Convert to float32
-    # ---------------------------------------------
-
-    embeddings = np.asarray(
-        embeddings,
-        dtype="float32"
-    )
-
-
-    # ---------------------------------------------
-    # Normalize embeddings
-    #
-    # This allows FAISS Inner Product
-    # to behave like cosine similarity.
-    # ---------------------------------------------
+    embeddings = embeddings.astype("float32")
 
     faiss.normalize_L2(
         embeddings
     )
 
-
-    # ---------------------------------------------
-    # Create FAISS index
-    # ---------------------------------------------
-
-    dimension = embeddings.shape[1]
-
     index = faiss.IndexFlatIP(
-        dimension
+        embeddings.shape[1]
     )
-
-
-    # ---------------------------------------------
-    # Add embeddings
-    # ---------------------------------------------
 
     index.add(
         embeddings
     )
 
-
-    # ---------------------------------------------
-    # Save cache
-    # ---------------------------------------------
-
-    cached_index = index
-
-    cached_chunks = chunks
-
-    cached_embeddings = embeddings
-
-    cached_pdf_hash = pdf_hash
-
+    _cached_hash = pdf_hash
+    _cached_index = index
+    _cached_chunks = chunks
 
     return (
         index,
@@ -197,9 +118,9 @@ def build_index(text):
     )
 
 
-# =====================================================
+# ==========================================================
 # SEMANTIC SEARCH
-# =====================================================
+# ==========================================================
 
 def semantic_search(
     query,
@@ -208,128 +129,47 @@ def semantic_search(
     top_k=5,
     min_score=0.30
 ):
-    """
-    Search PDF chunks using semantic similarity.
 
-    Returns only relevant chunks.
-
-    This prevents unrelated chunks from being
-    passed to Gemini as PDF context.
-    """
-
-    # ---------------------------------------------
-    # Validate input
-    # ---------------------------------------------
-
-    if not query:
+    if (
+        not query
+        or index is None
+        or not chunks
+    ):
         return ""
 
-
-    if index is None:
-        return ""
-
-
-    if not chunks:
-        return ""
-
-
-    # ---------------------------------------------
-    # Encode user question
-    # ---------------------------------------------
-
-    query_embedding = model.encode(
+    query_vector = model.encode(
         [query],
         convert_to_numpy=True,
         show_progress_bar=False
-    )
-
-
-    query_embedding = np.asarray(
-        query_embedding,
-        dtype="float32"
-    )
-
-
-    # ---------------------------------------------
-    # Normalize query
-    # ---------------------------------------------
+    ).astype("float32")
 
     faiss.normalize_L2(
-        query_embedding
+        query_vector
     )
 
-
-    # ---------------------------------------------
-    # Search FAISS
-    # ---------------------------------------------
-
-    search_k = min(
-        top_k,
-        len(chunks)
+    scores, ids = index.search(
+        query_vector,
+        min(
+            top_k,
+            len(chunks)
+        )
     )
-
-
-    scores, indices = index.search(
-        query_embedding,
-        search_k
-    )
-
-
-    # ---------------------------------------------
-    # Collect relevant chunks
-    # ---------------------------------------------
 
     results = []
 
-    seen = set()
-
-
     for score, idx in zip(
         scores[0],
-        indices[0]
+        ids[0]
     ):
 
-        # Invalid index
         if idx == -1:
             continue
 
-
-        # Ignore low similarity
-        if float(score) < min_score:
+        if score < min_score:
             continue
-
-
-        chunk = chunks[idx].strip()
-
-
-        if not chunk:
-            continue
-
-
-        # Remove duplicate chunks
-        if chunk in seen:
-            continue
-
-
-        seen.add(
-            chunk
-        )
-
 
         results.append(
-            chunk
+            chunks[idx]
         )
 
-
-    # ---------------------------------------------
-    # Return empty if nothing is relevant
-    # ---------------------------------------------
-
-    if not results:
-
-        return ""
-
-
-    return "\n\n".join(
-        results
-    )
+    return "\n\n".join(results)
