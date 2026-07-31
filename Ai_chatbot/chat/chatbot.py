@@ -1250,10 +1250,8 @@ def chatbot(
 
     except Exception as e:
 
-        print(
-            "Conversation Memory Error:",
-            e
-        )
+        if DEBUG:
+            print("Conversation Memory Error:", e)
 
         conversation = ""
 
@@ -1287,10 +1285,7 @@ def chatbot(
 
         if result["success"]:
 
-            answer = (
-                "🤖 Source: Gemini AI\n\n"
-                + result["answer"]
-            )
+            answer = result["answer"]
 
             update_stats(
                 answer,
@@ -1302,7 +1297,7 @@ def chatbot(
                 answer
             )
 
-            return answer
+            return f"🤖 Source: Gemini AI\n\n{answer}"
 
 
         if result["error_type"] == "quota":
@@ -1331,18 +1326,17 @@ def chatbot(
     # 5. EXTRACT ALL PDF TEXT
     # =====================================================
 
-    pdf_content = extract_all_pdf_text(
-        pdf_files
-    )
+    pdf_content = extract_all_pdf_text(pdf_files)
 
-    semantic_index, semantic_chunks = build_index(
-        pdf_content
-    )
+    if not pdf_content:
+        return "⚠ Unable to read the uploaded PDF."
 
-    print(
-        f"PDF Loaded ({len(pdf_content)} characters)"
-    )
-
+    semantic_index, semantic_chunks = build_index(pdf_content)
+    
+    DEBUG = False
+    if DEBUG:
+        print(f"📄 PDF Ready | Chunks: {len(semantic_chunks)}")
+        
     # =====================================================
     # 6. PDF SUMMARY QUERY
     # =====================================================
@@ -1398,10 +1392,8 @@ def chatbot(
 
         except Exception as e:
 
-            print(
-                "PDF Summary Error:",
-                e
-            )
+            if DEBUG:
+                print("PDF Summary Error:", e)
 
 
     # =====================================================
@@ -1515,7 +1507,10 @@ def chatbot(
 
         if section_text:
 
-            print("PDF SECTION MATCH FOUND")
+            DEBUG = False
+
+            if DEBUG:
+                print("PDF SECTION MATCH FOUND")
 
             pdf_section_answer = format_pdf_section_answer(
                 question=message,
@@ -1563,10 +1558,8 @@ def chatbot(
 
             except Exception as e:
 
-                print(
-                    "Semantic Search Error:",
-                    e
-                )
+                if DEBUG:
+                    print("Semantic Search Error:", e)
 
                 relevant_text = ""
 
@@ -1577,32 +1570,18 @@ def chatbot(
 
         if relevant_text:
 
-            question_words = set(
-                re.findall(
-                    r"\w+",
-                    message.lower()
-                )
-            )
+            question_words = set(re.findall(r"\w+", message.lower()))
+            context_words = set(re.findall(r"\w+", relevant_text.lower()))
 
-            context_words = set(
-                re.findall(
-                    r"\w+",
-                    relevant_text.lower()
-                )
-            )
+            overlap = len(question_words & context_words)
 
-            overlap = len(
-                question_words & context_words
-            )
+            ratio = overlap / max(len(question_words), 1)
 
-            print(
-                f"Word Overlap: {overlap}"
-            )
+            DEBUG = False
+            if DEBUG:
+                print(f"Overlap : {ratio:.2f}")
 
-            # Reject unrelated semantic matches
-
-            if overlap == 0:
-
+            if ratio < 0.35:
                 relevant_text = ""
 
 
@@ -1610,13 +1589,13 @@ def chatbot(
         # STEP 4 : NO PDF CONTEXT
         # -------------------------------------------------
 
-        if not relevant_text:
+        DEBUG = False
 
-            print(
-                "No relevant PDF context found."
-            )
+        if not relevant_text:
+            pdf_related = False
 
         else:
+            result = ask_gemini(...)
 
             # ---------------------------------------------
             # STEP 5 : ASK GEMINI USING PDF CONTEXT
