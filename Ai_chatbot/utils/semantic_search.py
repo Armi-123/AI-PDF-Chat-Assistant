@@ -178,4 +178,4 @@ def semantic_search(
     if not results:
         return ""
 
-    return "\n\n".join(results)
+    return "\n\n".join(results).strip()

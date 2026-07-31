@@ -181,9 +181,7 @@ def detect_direct_query(question):
     if any(
         phrase in q
         for phrase in [
-            "phone",
             "phone number",
-            "mobile",
             "mobile number",
             "contact number",
             "contact no",

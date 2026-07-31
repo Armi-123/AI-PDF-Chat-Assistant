@@ -29,7 +29,7 @@ MODEL_NAME = "gemini-2.5-flash"
 
 SEMANTIC_TOP_K = 5
 
-SEMANTIC_MIN_SCORE = 0.25
+SEMANTIC_MIN_SCORE = 0.50
 
 MAX_PDF_CONTEXT = 12000
 
@@ -134,15 +134,31 @@ def find_direct_pdf_answer(
 
 
     # =================================================
-    # PHONE
+    # PHONE NUMBER
     # =================================================
 
-    if (
-        "phone" in question_lower
-        or "mobile" in question_lower
-        or "contact number" in question_lower
-        or "phone number" in question_lower
-    ):
+    phone_queries = [
+        "phone number",
+        "mobile number",
+        "contact number",
+        "candidate phone",
+        "candidate mobile",
+        "candidate contact",
+        "person phone",
+        "person mobile",
+        "resume phone",
+        "resume contact",
+        "contact details",
+        "candidate phone number",
+        "candidate mobile number"
+    ]
+
+    is_phone_query = any(
+        query in question_lower
+        for query in phone_queries
+    )
+
+    if is_phone_query:
 
         phones = re.findall(
             r"(?:\(\+91\)|\+91)?[\s-]*[6-9]\d{4}[\s-]?\d{5}",
@@ -150,11 +166,7 @@ def find_direct_pdf_answer(
         )
 
         if phones:
-
-            return "\n".join(
-                dict.fromkeys(phones)
-            )
-
+            return "\n".join(dict.fromkeys(phones))
 
     # =================================================
     # LINKEDIN
@@ -1167,18 +1179,30 @@ def is_relevant_to_pdf(
         # If semantic search found only a weak match,
         # ignore the PDF and use Gemini normally.
 
-        if relevant_text:
+        if not relevant_text:
+            print("PDF Related: False")
+            return False
 
-            if len(relevant_text.split()) < 40:
-                relevant_text = ""
+        # Reject very small semantic matches
+        if len(relevant_text.split()) < 40:
+            print("PDF Related: False (Weak Match)")
+            return False
 
-            print("PDF Related: True")
+        # Reject weak score matches
+        query_words = set(re.findall(r"\w+", question.lower()))
+        context_words = set(re.findall(r"\w+", relevant_text.lower()))
 
-            return True
+        overlap = len(query_words & context_words)
+        score = overlap / max(len(query_words), 1)
 
-        print("PDF Related: False")
+        print(f"Semantic Overlap: {score:.2f}")
 
-        return False
+        if score < 0.35:
+            print("PDF Related: False (Low Overlap)")
+            return False
+
+        print("PDF Related: True")
+        return True
 
     except Exception as e:
 
@@ -1471,9 +1495,6 @@ def chatbot(
 
     if DEBUG:
         print("PDF RELATED:", pdf_related)
-        
-    print("PDF Loaded")
-    print("Conversation")
     
     # =====================================================
     # 10. PDF-RELATED QUESTION SEARCH
