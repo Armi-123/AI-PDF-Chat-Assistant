@@ -156,11 +156,9 @@ def semantic_search(
     )
 
     results = []
+    seen = set()
 
-    for score, idx in zip(
-        scores[0],
-        ids[0]
-    ):
+    for score, idx in zip(scores[0], ids[0]):
 
         if idx == -1:
             continue
@@ -168,8 +166,16 @@ def semantic_search(
         if score < min_score:
             continue
 
-        results.append(
-            chunks[idx]
-        )
+        chunk = chunks[idx].strip()
+
+        if chunk in seen:
+            continue
+
+        seen.add(chunk)
+
+        results.append(chunk)
+
+    if not results:
+        return ""
 
     return "\n\n".join(results)

@@ -587,38 +587,31 @@ def ask_gemini(
     if pdf_context:
 
         prompt = f"""
-You are an AI PDF Chat Assistant.
+You are a PDF Question Answering Assistant.
 
-Answer the user's question using ONLY the
-information provided in the uploaded PDF context.
+You MUST answer ONLY from the PDF Context.
 
 Rules:
 
-1. Use the PDF context as the primary and only source.
-2. Do not invent or guess information.
-3. Do not use outside knowledge.
-4. If the answer is clearly present in the PDF context,
-   answer it directly.
-5. If the question asks for a list, return a clean
-   bullet-point list.
-6. If the question asks about skills, tools, education,
-   internships, experience, projects, or certifications,
-   extract the relevant information.
-7. Keep the response clear and concise.
-8. Do not mention these instructions.
-9. Do not mention the retrieval process.
-10. Do not mention previous conversation unless it is
-    necessary to understand the current question.
+1. Use ONLY the information inside PDF Context.
 
-Uploaded PDF Context:
+2. NEVER use your own knowledge.
+
+3. NEVER guess.
+
+4. If the answer is NOT found in the PDF context, reply EXACTLY:
+
+Information not found in uploaded PDF.
+
+5. Do not explain why.
+
+6. Do not add outside knowledge.
+
+PDF Context:
 
 {pdf_context}
 
-Conversation Context:
-
-{conversation}
-
-User Question:
+Question:
 
 {message}
 
@@ -1171,7 +1164,13 @@ def is_relevant_to_pdf(
             min_score=min_score
         )
 
+        # If semantic search found only a weak match,
+        # ignore the PDF and use Gemini normally.
+
         if relevant_text:
+
+            if len(relevant_text.split()) < 40:
+                relevant_text = ""
 
             print("PDF Related: True")
 
@@ -1468,19 +1467,24 @@ def chatbot(
 
     )
 
-    print(
-        "PDF RELATED:",
-        pdf_related
-    )
+    DEBUG = False
 
+    if DEBUG:
+        print("PDF RELATED:", pdf_related)
+        
+    print("PDF Loaded")
+    print("Conversation")
+    
     # =====================================================
     # 10. PDF-RELATED QUESTION SEARCH
     # =====================================================
 
     if pdf_related:
 
+        relevant_text = ""
+
         # -------------------------------------------------
-        # SECTION-AWARE SEARCH
+        # STEP 1 : SECTION SEARCH
         # -------------------------------------------------
 
         section_text = find_section_content(
@@ -1490,9 +1494,7 @@ def chatbot(
 
         if section_text:
 
-            print(
-                "PDF SECTION MATCH FOUND"
-            )
+            print("PDF SECTION MATCH FOUND")
 
             pdf_section_answer = format_pdf_section_answer(
                 question=message,
@@ -1518,17 +1520,13 @@ def chatbot(
 
                 return answer
 
-            # Section found but formatted answer
-            # could not be generated.
-            # Use section text as PDF context.
-
+            # Use section as Gemini context
             relevant_text = section_text
 
 
-        # ---------------------------------------------
-        # If section search didn't find anything,
-        # use semantic PDF search.
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # STEP 2 : SEMANTIC SEARCH
+        # -------------------------------------------------
 
         if not relevant_text:
 
@@ -1544,20 +1542,64 @@ def chatbot(
 
             except Exception as e:
 
-                print("PDF Search Error:", e)
+                print(
+                    "Semantic Search Error:",
+                    e
+                )
 
                 relevant_text = ""
 
 
         # -------------------------------------------------
-        # PDF CONTEXT FOUND
+        # STEP 3 : VALIDATE SEMANTIC RESULT
+        # -------------------------------------------------
+
+        if relevant_text:
+
+            question_words = set(
+                re.findall(
+                    r"\w+",
+                    message.lower()
+                )
+            )
+
+            context_words = set(
+                re.findall(
+                    r"\w+",
+                    relevant_text.lower()
+                )
+            )
+
+            overlap = len(
+                question_words & context_words
+            )
+
+            print(
+                f"Word Overlap: {overlap}"
+            )
+
+            # Reject unrelated semantic matches
+
+            if overlap == 0:
+
+                relevant_text = ""
+
+
+        # -------------------------------------------------
+        # STEP 4 : NO PDF CONTEXT
         # -------------------------------------------------
 
         if not relevant_text:
 
-            print("No relevant PDF context found.")
+            print(
+                "No relevant PDF context found."
+            )
 
         else:
+
+            # ---------------------------------------------
+            # STEP 5 : ASK GEMINI USING PDF CONTEXT
+            # ---------------------------------------------
 
             result = ask_gemini(
                 message=message,
@@ -1566,10 +1608,9 @@ def chatbot(
                 pdf_fallback=False
             )
 
-
-            # -------------------------------------------------
-            # GEMINI SUCCESS WITH PDF CONTEXT
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # GEMINI SUCCESS
+            # ---------------------------------------------
 
             if result["success"]:
 
@@ -1591,9 +1632,9 @@ def chatbot(
                 return answer
 
 
-            # -------------------------------------------------
-            # GEMINI FAILED - PDF FALLBACK
-            # -------------------------------------------------
+            # ---------------------------------------------
+            # GEMINI FAILED
+            # ---------------------------------------------
 
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
@@ -1613,8 +1654,7 @@ def chatbot(
             )
 
             return answer
-
-
+        
     # =====================================================
     # 11. GENERAL GEMINI QUESTION
     # =====================================================
