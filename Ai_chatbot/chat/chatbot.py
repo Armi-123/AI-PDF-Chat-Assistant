@@ -9,7 +9,7 @@ from config.gemini_config import client
 from pdf.pdf_search import (
     find_relevant_text,
 )
-
+from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 
 from pdf.pdf_utils import (
@@ -1242,7 +1242,48 @@ def chatbot(
         return (
             "Please enter a question."
         )
+        
+    # =====================================================
+    # RESUME REVIEW DETECTION
+    # =====================================================
 
+    question_lower = message.lower()
+
+    resume_keywords = [
+        "resume",
+        "cv"
+    ]
+
+    review_keywords = [
+        "review",
+        "analyse",
+        "analyze",
+        "feedback",
+        "score",
+        "ats",
+        "evaluate",
+        "improve"
+    ]
+
+    if (
+        any(word in question_lower for word in resume_keywords)
+        and
+        any(word in question_lower for word in review_keywords)
+    ):
+
+        answer = review_resume(pdf_files)
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
 
     # =====================================================
     # 2. BUILD CONVERSATION MEMORY
