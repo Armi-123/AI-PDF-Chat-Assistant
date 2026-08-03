@@ -7,6 +7,7 @@ from pdf.pdf_summary import summarize_pdf
 
 from features.smart_suggestions import load_suggestions
 from features.chat_statistics import get_statistics
+from features.resume_review import review_resume
 
 with gr.Blocks(
     title="AI PDF Chat Assistant"
@@ -150,6 +151,20 @@ with gr.Blocks(
             msg,
             statistics_output
         ]
+    )
+    
+    review_output = gr.Markdown(
+        label="⭐ AI Resume Review"
+    )
+
+    review_btn = gr.Button(
+        "⭐ Review Resume"
+    )
+
+    review_btn.click(
+        fn=review_resume,
+        inputs=pdf_file,
+        outputs=review_output
     )
 
     # =====================================================
