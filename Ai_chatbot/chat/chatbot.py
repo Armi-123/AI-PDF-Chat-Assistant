@@ -671,13 +671,19 @@ Answer:
         prompt = f"""
 You are a helpful AI assistant.
 
-Answer the user's question clearly and accurately.
+The user's question is not answered by the available document.
+
+Answer using your own knowledge.
+
+Do NOT mention the PDF.
+Do NOT say "The uploaded PDF does not contain..."
+Answer naturally.
 
 Conversation:
 
 {conversation}
 
-User Question:
+User:
 
 {message}
 
@@ -1278,7 +1284,7 @@ def chatbot(
         result = ask_gemini(
             message=message,
             pdf_context="",
-            conversation=conversation,
+            conversation="",
             pdf_fallback=False
         )
 
