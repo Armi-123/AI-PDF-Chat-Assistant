@@ -3,7 +3,6 @@ import re
 import time
 
 from pypdf import PdfReader
-
 from config.gemini_config import client
 from config.settings import (
     MODEL_NAME,
@@ -20,9 +19,11 @@ from pdf.pdf_utils import (
     clean_pdf_text,
     get_linkedin_url,
     get_github_url,
-    get_pdf_urls,
 )
-from utils.semantic_search import semantic_search,build_index
+from utils.semantic_search import (
+    semantic_search,
+    build_index
+)
 from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
@@ -34,22 +35,23 @@ semantic_cache = {}
 # =====================================================
 
 def clean_source_labels(answer):
+    """
+    Remove source labels from Gemini responses.
+    """
 
     if not answer:
         return ""
 
-    answer = answer.replace(
+    labels = (
         "📄 Source: Uploaded PDF",
-        ""
+        "🤖 Source: Gemini AI",
+        "🤖 Source: Gemini AI + 📄 Uploaded PDF",
     )
 
-    answer = answer.replace(
-        "🤖 Source: Gemini AI",
-        ""
-    )
+    for label in labels:
+        answer = answer.replace(label, "")
 
     return answer.strip()
-
 
 # =====================================================
 # DIRECT PDF FACT SEARCH
@@ -122,7 +124,7 @@ def find_direct_pdf_answer(
     if is_phone_query:
 
         phones = re.findall(
-            r"(?:\(\+91\)|\+91)?[\s-]*[6-9]\d{4}[\s-]?\d{5}",
+            r"(?:\+91[-\s]?)?[6-9]\d{9}",
             pdf_content
         )
 
@@ -237,7 +239,6 @@ def find_direct_pdf_answer(
 
 
     return ""
-
 
 # =====================================================
 # SECTION-AWARE PDF SEARCH
@@ -490,52 +491,16 @@ def find_section_content(
         result
     ).strip()
 
-
 def format_pdf_section_answer(question, section_text):
     """
-    Format information already found directly
-    inside the uploaded PDF.
+    Format section content extracted directly
+    from the uploaded PDF.
     """
 
     if not section_text:
         return ""
 
-    question_lower = question.lower()
-
-    # Projects
-    if "project" in question_lower:
-        return section_text.strip()
-
-    # Skills
-    if "skill" in question_lower or "technologies" in question_lower:
-        return section_text.strip()
-
-    # Education
-    if (
-        "education" in question_lower
-        or "degree" in question_lower
-        or "educational background" in question_lower
-    ):
-        return section_text.strip()
-
-    # Work experience / internships
-    if (
-        "experience" in question_lower
-        or "internship" in question_lower
-        or "internships" in question_lower
-        or "work experience" in question_lower
-    ):
-        return section_text.strip()
-
-    # Certifications
-    if (
-        "certification" in question_lower
-        or "certifications" in question_lower
-        or "certificate" in question_lower
-    ):
-        return section_text.strip()
-
-    return ""
+    return section_text.strip()
 
 # =====================================================
 # GEMINI REQUEST
@@ -651,7 +616,7 @@ Answer:
     # GEMINI API REQUEST
     # =================================================
 
-    MAX_RETRIES = 3
+    MAX_RETRIES = 2
 
     for attempt in range(MAX_RETRIES):
 
@@ -686,7 +651,6 @@ Answer:
                 "answer": "",
                 "error_type": "empty"
             }
-
 
         except Exception as e:
 
@@ -759,7 +723,6 @@ Answer:
         "error_type": "busy"
     }
 
-
 # =====================================================
 # PDF CONTEXT FALLBACK
 # =====================================================
@@ -791,7 +754,6 @@ def pdf_context_fallback(
     #     + relevant_text
     # )
     return relevant_text
-
 
 # =====================================================
 # PDF FILE NORMALIZATION
@@ -832,33 +794,37 @@ def normalize_pdf_files(
         str(pdf_files)
     ]
 
-
 # =====================================================
 # EXTRACT ALL PDF TEXT
 # =====================================================
 
 def extract_all_pdf_text(pdf_files):
+    """
+    Extract and clean text from all uploaded PDFs.
+    """
 
-    combined_text = ""
+    combined_text = []
 
     for pdf in pdf_files:
 
         try:
-            text = extract_pdf_text(pdf)
-            text = clean_pdf_text(text)
+            text = clean_pdf_text(
+                extract_pdf_text(pdf)
+            )
 
             if text:
-                combined_text += text + "\n\n"
+                combined_text.append(text)
 
         except Exception as e:
 
-            print(
-                f"⚠ PDF extraction failed: "
-                f"{os.path.basename(pdf)}"
-            )
+            if DEBUG:
+                print(
+                    f"⚠ PDF extraction failed: "
+                    f"{os.path.basename(pdf)}"
+                )
+                print(e)
 
-    return combined_text.strip()
-
+    return "\n\n".join(combined_text).strip()
 
 # =====================================================
 # PDF STATISTICS
@@ -904,19 +870,14 @@ Characters: {len(text)}
 Size: {size_kb} KB"""
             )
 
-
         except Exception as e:
-
-            print(
-                "PDF Statistics Error:",
-                e
-            )
+            if DEBUG:
+                print("PDF Statistics Error:", e)
 
 
     return "\n\n".join(
         result
     )
-
 
 # =====================================================
 # SIMPLE PDF METADATA QUERY
@@ -1100,7 +1061,6 @@ def handle_pdf_metadata_query(
 
     return ""
 
-
 # ===================================================== 
 # CHECK WHETHER QUESTION IS RELATED TO PDF 
 # =====================================================
@@ -1112,8 +1072,9 @@ def is_relevant_to_pdf(
     min_score=SEMANTIC_MIN_SCORE
 ):
     """
-    Determine whether the user's question is
-    related to the uploaded PDF using semantic search.
+    Determine whether the user's question
+    is related to the uploaded PDF using
+    semantic search.
     """
 
     if not question:
@@ -1135,40 +1096,53 @@ def is_relevant_to_pdf(
             min_score=min_score
         )
 
-        # If semantic search found only a weak match,
-        # ignore the PDF and use Gemini normally.
-
         if not relevant_text:
-            print("PDF Related: False")
+
+            if DEBUG:
+                print("PDF Related: False")
+
             return False
 
-        # Reject very small semantic matches
+        # Reject very small matches
+
         if len(relevant_text.split()) < 40:
-            print("PDF Related: False (Weak Match)")
+
+            if DEBUG:
+                print("PDF Related: False (Weak Match)")
+
             return False
 
-        # Reject weak score matches
-        query_words = set(re.findall(r"\w+", question.lower()))
-        context_words = set(re.findall(r"\w+", relevant_text.lower()))
+        query_words = set(
+            re.findall(r"\w+", question.lower())
+        )
+
+        context_words = set(
+            re.findall(r"\w+", relevant_text.lower())
+        )
 
         overlap = len(query_words & context_words)
+
         score = overlap / max(len(query_words), 1)
 
-        print(f"Semantic Overlap: {score:.2f}")
+        if DEBUG:
+            print(f"Semantic Overlap: {score:.2f}")
 
         if score < 0.25:
-            print("PDF Related: False (Low Overlap)")
+
+            if DEBUG:
+                print("PDF Related: False (Low Overlap)")
+
             return False
 
-        print("PDF Related: True")
+        if DEBUG:
+            print("PDF Related: True")
+
         return True
 
     except Exception as e:
 
-        print(
-            "PDF relevance check failed:",
-            e
-        )
+        if DEBUG:
+            print("PDF relevance check failed:", e)
 
         return False
     
@@ -1375,7 +1349,8 @@ def chatbot(
     # 6. PDF SUMMARY QUERY
     # =====================================================
 
-    question_lower = message.lower().strip()
+    question_lower = message.casefold().strip()
+    message = re.sub(r"\s+", " ", message).strip()
     
     # ------------------------------------------------
     # Always initialize
@@ -1405,10 +1380,7 @@ def chatbot(
                 pdf_files
             )
             
-            answer = (
-                "📄 Source: Uploaded PDF\n\n"
-                + answer
-            )
+            answer = f"🤖 Source: Gemini AI\n\n{result['answer']}"
 
             update_stats(
                 answer,
@@ -1593,7 +1565,7 @@ def chatbot(
             if DEBUG:
                 print(f"Overlap : {ratio:.2f}")
 
-            if ratio < 0.35:
+            if ratio < 0.30:
                 relevant_text = ""
 
 
@@ -1680,10 +1652,7 @@ def chatbot(
 
     if result["success"]:
 
-        answer = (
-            "🤖 Source: Gemini AI\n\n"
-            + result["answer"]
-        )
+        answer = f"🤖 Source: Gemini AI\n\n{result['answer']}"
 
         update_stats(
             answer,
