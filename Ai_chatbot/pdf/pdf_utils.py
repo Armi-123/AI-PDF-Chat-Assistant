@@ -780,6 +780,34 @@ def extract_pdf_text(pdf_file):
     extracted_text = clean_pdf_text(
         extracted_text
     )
+    
+    # =====================================================
+    # FINAL CLEANING
+    # =====================================================
+
+    extracted_text = clean_pdf_text(extracted_text)
+
+    try:
+        links = extract_pdf_links(pdf_file)
+
+        urls = []
+
+        if links.get("linkedin"):
+            urls.extend(links["linkedin"])
+
+        if links.get("github"):
+            urls.extend(links["github"])
+
+        for url in links.get("urls", []):
+            if url not in urls:
+                urls.append(url)
+
+        if urls:
+            extracted_text += "\n\n===== HIDDEN PDF LINKS =====\n"
+            extracted_text += "\n".join(urls)
+
+    except Exception as e:
+        print("PDF Link Append Error:", e)
 
     # =================================================
     # CACHE

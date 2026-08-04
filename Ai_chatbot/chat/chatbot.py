@@ -5,16 +5,15 @@ import time
 from pypdf import PdfReader
 
 from config.gemini_config import client
-
-from pdf.pdf_search import (
-    find_relevant_text,
-)
 from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
-
 from pdf.pdf_utils import (
     extract_pdf_text,
     get_pdf_title,
+    clean_pdf_text,
+    get_linkedin_url,
+    get_github_url,
+    get_pdf_urls,
 )
 from utils.semantic_search import semantic_search,build_index
 from features.chat_statistics import update_stats
@@ -31,8 +30,8 @@ SEMANTIC_TOP_K = 5
 
 SEMANTIC_MIN_SCORE = 0.50
 
-MAX_PDF_CONTEXT = 12000
-
+MAX_PDF_CONTEXT = 20000
+semantic_cache = {}
 
 # =====================================================
 # CLEAN SOURCE LABELS
@@ -54,40 +53,6 @@ def clean_source_labels(answer):
     )
 
     return answer.strip()
-
-
-# =====================================================
-# CLEAN PDF TEXT
-# =====================================================
-
-def clean_pdf_text(text):
-
-    if not text:
-        return ""
-
-    text = text.replace(
-        "\r",
-        "\n"
-    )
-
-    text = text.replace(
-        "\t",
-        " "
-    )
-
-    text = re.sub(
-        r"[ ]{2,}",
-        " ",
-        text
-    )
-
-    text = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        text
-    )
-
-    return text.strip()
 
 
 # =====================================================
@@ -174,18 +139,15 @@ def find_direct_pdf_answer(
 
     if "linkedin" in question_lower:
 
-        match = re.search(
-            r"https?://(?:www\.)?linkedin\.com/[^\s]+",
-            pdf_content,
-            re.IGNORECASE
-        )
+        if pdf_files:
 
-        if match:
-            return match.group(0)
+            linkedin = get_linkedin_url(pdf_files[0])
+
+            if linkedin:
+                return linkedin
 
         if "linkedin" in pdf_content.lower():
-            return "LinkedIn profile is mentioned in the uploaded PDF, but the actual URL is not available."
-
+            return "LinkedIn profile is mentioned in the uploaded PDF."
 
     # =================================================
     # GITHUB
@@ -193,17 +155,15 @@ def find_direct_pdf_answer(
 
     if "github" in question_lower:
 
-        match = re.search(
-            r"https?://(?:www\.)?github\.com/[^\s]+",
-            pdf_content,
-            re.IGNORECASE
-        )
+        if pdf_files:
 
-        if match:
-            return match.group(0)
+            github = get_github_url(pdf_files[0])
+
+            if github:
+                return github
 
         if "github" in pdf_content.lower():
-            return "GitHub profile is mentioned in the uploaded PDF, but the actual URL is not available."
+            return "GitHub profile is mentioned in the uploaded PDF."
 
     # =================================================
     # CANDIDATE NAME
@@ -892,10 +852,7 @@ def extract_all_pdf_text(pdf_files):
             text = clean_pdf_text(text)
 
             if text:
-                combined_text += (
-                    f"\n\n===== {os.path.basename(pdf)} =====\n\n"
-                    f"{text}"
-                )
+                combined_text += text + "\n\n"
 
         except Exception as e:
 
@@ -1203,7 +1160,7 @@ def is_relevant_to_pdf(
 
         print(f"Semantic Overlap: {score:.2f}")
 
-        if score < 0.35:
+        if score < 0.25:
             print("PDF Related: False (Low Overlap)")
             return False
 
@@ -1251,18 +1208,45 @@ def chatbot(
 
     resume_keywords = [
         "resume",
-        "cv"
+        "cv",
+        "profile",
+        "candidate",
+        "applicant"
     ]
 
     review_keywords = [
-        "review",
-        "analyse",
-        "analyze",
-        "feedback",
-        "score",
+        "resume",
+        "cv",
         "ats",
-        "evaluate",
-        "improve"
+
+        "review my resume",
+        "analyze my resume",
+        "analyse my resume",
+
+        "resume review",
+        "resume feedback",
+
+        "resume score",
+        "ats score",
+
+        "improve my resume",
+        "improve resume",
+
+        "strengths",
+        "weaknesses",
+
+        "missing skills",
+        "missing keywords",
+
+        "interview ready",
+
+        "job roles",
+        "salary",
+        "companies",
+        "recruiter",
+        "resume summary",
+        "resume suggestions",
+        "compare my resume"
     ]
 
     if (
@@ -1378,7 +1362,12 @@ def chatbot(
     if not pdf_content:
         return "⚠ Unable to read the uploaded PDF."
 
-    semantic_index, semantic_chunks = build_index(pdf_content)
+    cache_key = tuple(pdf_files)
+
+    if cache_key not in semantic_cache:
+        semantic_cache[cache_key] = build_index(pdf_content)
+
+    semantic_index, semantic_chunks = semantic_cache[cache_key]
     
     DEBUG = False
     if DEBUG:
@@ -1505,32 +1494,17 @@ def chatbot(
     # ------------------------------------------------
     # 9.Dynamic PDF Detection
     # ------------------------------------------------
-
+    section_text = ""
     pdf_related = (
-
-        bool(find_direct_pdf_answer(
-            message,
-            pdf_content
-        ))
-
-        or
-
-        bool(find_section_content(
-            message,
-            pdf_content
-        ))
-
-        or
-
-        is_relevant_to_pdf(
+        bool(direct_answer)
+        or bool(section_text)
+        or is_relevant_to_pdf(
             question=message,
             semantic_index=semantic_index,
-            semantic_chunks=semantic_chunks
+            semantic_chunks=semantic_chunks,
+            min_score=SEMANTIC_MIN_SCORE
         )
-
     )
-
-    DEBUG = False
 
     if DEBUG:
         print("PDF RELATED:", pdf_related)
@@ -1553,9 +1527,7 @@ def chatbot(
         )
 
         if section_text:
-
-            DEBUG = False
-
+            
             if DEBUG:
                 print("PDF SECTION MATCH FOUND")
 
@@ -1624,7 +1596,6 @@ def chatbot(
 
             ratio = overlap / max(len(question_words), 1)
 
-            DEBUG = False
             if DEBUG:
                 print(f"Overlap : {ratio:.2f}")
 
@@ -1636,24 +1607,11 @@ def chatbot(
         # STEP 4 : NO PDF CONTEXT
         # -------------------------------------------------
 
-        DEBUG = False
-
         if not relevant_text:
             pdf_related = False
 
         else:
             result = ask_gemini(...)
-
-            # ---------------------------------------------
-            # STEP 5 : ASK GEMINI USING PDF CONTEXT
-            # ---------------------------------------------
-
-            result = ask_gemini(
-                message=message,
-                pdf_context=relevant_text,
-                conversation=conversation,
-                pdf_fallback=False
-            )
 
             # ---------------------------------------------
             # GEMINI SUCCESS
@@ -1768,5 +1726,6 @@ def chatbot(
     # =====================================================
 
     return (
-        "⚠ Unable to generate a response right now."
+        "⚠ I couldn't generate a response at the moment. "
+        "Please try again in a few seconds."
     )
