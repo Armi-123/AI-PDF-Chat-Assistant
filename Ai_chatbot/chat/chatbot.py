@@ -5,6 +5,13 @@ import time
 from pypdf import PdfReader
 
 from config.gemini_config import client
+from config.settings import (
+    MODEL_NAME,
+    SEMANTIC_TOP_K,
+    SEMANTIC_MIN_SCORE,
+    MAX_PDF_CONTEXT,
+    DEBUG,
+)
 from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
@@ -20,17 +27,6 @@ from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
 
-# =====================================================
-# CONFIGURATION
-# =====================================================
-
-MODEL_NAME = "gemini-2.5-flash"
-
-SEMANTIC_TOP_K = 5
-
-SEMANTIC_MIN_SCORE = 0.50
-
-MAX_PDF_CONTEXT = 20000
 semantic_cache = {}
 
 # =====================================================
@@ -1362,14 +1358,16 @@ def chatbot(
     if not pdf_content:
         return "⚠ Unable to read the uploaded PDF."
 
-    cache_key = tuple(pdf_files)
+    cache_key = (
+        tuple(pdf_files),
+        hash(pdf_content)
+    )
 
     if cache_key not in semantic_cache:
         semantic_cache[cache_key] = build_index(pdf_content)
 
     semantic_index, semantic_chunks = semantic_cache[cache_key]
     
-    DEBUG = False
     if DEBUG:
         print(f"📄 PDF Ready | Chunks: {len(semantic_chunks)}")
         
@@ -1492,22 +1490,18 @@ def chatbot(
         return answer
 
     # ------------------------------------------------
-    # 9.Dynamic PDF Detection
+    # 9. DYNAMIC PDF DETECTION
     # ------------------------------------------------
-    section_text = ""
-    pdf_related = (
-        bool(direct_answer)
-        or bool(section_text)
-        or is_relevant_to_pdf(
-            question=message,
-            semantic_index=semantic_index,
-            semantic_chunks=semantic_chunks,
-            min_score=SEMANTIC_MIN_SCORE
-        )
+
+    pdf_related = is_relevant_to_pdf(
+        question=message,
+        semantic_index=semantic_index,
+        semantic_chunks=semantic_chunks,
+        min_score=SEMANTIC_MIN_SCORE
     )
 
     if DEBUG:
-        print("PDF RELATED:", pdf_related)
+        print(f"PDF Related: {pdf_related}")
     
     # =====================================================
     # 10. PDF-RELATED QUESTION SEARCH
@@ -1604,14 +1598,17 @@ def chatbot(
 
 
         # -------------------------------------------------
-        # STEP 4 : NO PDF CONTEXT
+        # STEP 4 : ASK GEMINI USING PDF CONTEXT
         # -------------------------------------------------
 
-        if not relevant_text:
-            pdf_related = False
+        if relevant_text:
 
-        else:
-            result = ask_gemini(...)
+            result = ask_gemini(
+                message=message,
+                pdf_context=relevant_text[:MAX_PDF_CONTEXT],
+                conversation=conversation,
+                pdf_fallback=False
+            )
 
             # ---------------------------------------------
             # GEMINI SUCCESS
@@ -1636,7 +1633,6 @@ def chatbot(
 
                 return answer
 
-
             # ---------------------------------------------
             # GEMINI FAILED
             # ---------------------------------------------
@@ -1659,6 +1655,12 @@ def chatbot(
             )
 
             return answer
+
+        # -------------------------------------------------
+        # STEP 5 : NO RELEVANT PDF CONTENT
+        # -------------------------------------------------
+
+        pdf_related = False
         
     # =====================================================
     # 11. GENERAL GEMINI QUESTION
