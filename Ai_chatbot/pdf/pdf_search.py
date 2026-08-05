@@ -880,9 +880,9 @@ def find_direct_pdf_answer(
     ):
 
         education_section = re.search(
-            r"Education\s*(.*?)(?=\n(?:Skills|Experience|Projects|Certifications|$))",
+            r"Education\s*(.*?)(?=\n(?:Skills|Experience|Projects|Certifications|Summary|Contact|$))",
             pdf_content,
-            re.IGNORECASE | re.DOTALL
+            re.I | re.S,
         )
 
         if education_section:
@@ -938,21 +938,50 @@ def find_direct_pdf_answer(
     # TECHNICAL SKILLS
     # =================================================
 
-    if (
-        "technical skills" in question_lower
-        or "skills" in question_lower
-        or "technologies" in question_lower
+    if any(
+        keyword in question_lower
+        for keyword in (
+            "technical skills",
+            "skills",
+            "technologies",
+            "technology",
+            "tools",
+        )
     ):
 
         skills_section = re.search(
-            r"Skills(?:\s*/\s*Technologies)?\s*(.*?)(?=\n(?:Experience|Projects|Education|Certifications|$))",
+            r"Skills(?:\s*/\s*Technologies)?\s*(.*?)(?=\n(?:Experience|Projects|Education|Certifications|Summary|Contact|$))",
             pdf_content,
-            re.IGNORECASE | re.DOTALL
+            re.IGNORECASE | re.DOTALL,
         )
 
         if skills_section:
-            return skills_section.group(1).strip()
 
+            skills = skills_section.group(1).strip()
+
+            # Format bullet points
+            skills = re.sub(
+                r"\s*•\s*",
+                "\n• ",
+                skills,
+            )
+
+            # Put category values on next line
+            skills = re.sub(
+                r"([A-Za-z/& ]+):",
+                r"\1:\n",
+                skills,
+            )
+
+            # Remove extra blank lines
+            skills = re.sub(
+                r"\n{3,}",
+                "\n\n",
+                skills,
+            )
+
+            return skills.strip()
+    
     # =================================================
     # NO DIRECT ANSWER
     # =================================================

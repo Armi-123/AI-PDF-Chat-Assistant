@@ -116,26 +116,35 @@ def find_direct_pdf_answer(
         "candidate mobile number"
     ]
 
-    is_phone_query = any(
-        query in question_lower
-        for query in phone_queries
-    )
+    if any(query in question_lower for query in phone_queries):
 
-    if is_phone_query:
-
-        phones = re.findall(
-            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5})",
+        phone_matches = re.findall(
+            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
             pdf_content
         )
 
-        phones = [
-            p.replace(" ", "").replace("-", "")
-            for p in phones
-        ]
+        formatted_numbers = []
+        seen = set()
 
-        if phones:
-            return "\n".join(f"(+91) {a} {b}"for a, b in phones)
+        for phone in phone_matches:
 
+            phone = re.sub(r"[\s\-]", "", phone)
+
+            if len(phone) != 10:
+                continue
+
+            if phone in seen:
+                continue
+
+            seen.add(phone)
+
+            formatted_numbers.append(
+                f"(+91) {phone[:5]} {phone[5:]}"
+            )
+
+        if formatted_numbers:
+            return "\n".join(formatted_numbers)
+        
     # =================================================
     # LINKEDIN
     # =================================================
@@ -650,7 +659,7 @@ def extract_all_pdf_text(pdf_files):
     for pdf in pdf_files:
 
         try:
-            text = clean_pdf_text(
+            text = (
                 extract_pdf_text(pdf)
             )
 
@@ -683,9 +692,7 @@ def get_pdf_statistics(
 
         try:
 
-            text = clean_pdf_text(
-                extract_pdf_text(pdf)
-            )
+            text = (extract_pdf_text(pdf))
 
             reader = PdfReader(
                 pdf
@@ -976,9 +983,15 @@ def is_relevant_to_pdf(
 
             return False
 
-        query_words = set(
-            re.findall(r"\w+", question_lower)
-        )
+        query_words = {
+
+            word
+
+            for word in re.findall(r"\w+", question_lower)
+
+            if len(word) > 2
+
+        }
 
         context_words = set(
             re.findall(r"\w+", relevant_text.lower())
@@ -1196,10 +1209,7 @@ def chatbot(
     if not pdf_content:
         return "⚠ Unable to read the uploaded PDF."
 
-    cache_key = (
-        tuple(pdf_files),
-        hash(pdf_content)
-    )
+    cache_key = (tuple(pdf_files))
 
     if cache_key not in semantic_cache:
         semantic_cache[cache_key] = build_index(pdf_content)
@@ -1213,8 +1223,13 @@ def chatbot(
     # 6. PDF SUMMARY QUERY
     # =====================================================
 
-    question_lower = message.casefold().strip()
-    message = re.sub(r"\s+", " ", message).strip()
+    message = re.sub(
+        r"\s+",
+        " ",
+        message
+    ).strip()
+
+    question_lower = message.casefold()
     
     # ------------------------------------------------
     # Always initialize
@@ -1240,12 +1255,13 @@ def chatbot(
 
         try:
 
-            answer = summarize_pdf(
-                pdf_files
+            answer = summarize_pdf(pdf_files)
+
+            answer = (
+                "🤖 Source: Gemini AI\n\n"
+                + answer
             )
             
-            answer = f"🤖 Source: Gemini AI\n\n{result['answer']}"
-
             update_stats(
                 answer,
                 source="pdf"
@@ -1496,7 +1512,7 @@ def chatbot(
         # STEP 5 : NO RELEVANT PDF CONTENT
         # -------------------------------------------------
 
-        pdf_related = False
+        pass
         
     # =====================================================
     # 11. GENERAL GEMINI QUESTION
