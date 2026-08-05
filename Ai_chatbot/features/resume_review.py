@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from google import genai
 import os
-
+from config.settings import MODEL_NAME
 from pdf.pdf_utils import extract_pdf_text
 
 load_dotenv()
@@ -24,10 +24,10 @@ def review_resume(pdf_files):
     """
 
     if not pdf_files:
+        return "⚠ Please upload a resume first."
 
-        return (
-            "⚠ Please upload a resume first."
-        )
+    if isinstance(pdf_files, str):
+        pdf_files = [pdf_files]
 
     try:
 
@@ -108,11 +108,46 @@ Do not mention you are an AI.
     try:
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model=MODEL_NAME,
             contents=prompt
         )
 
-        return response.text.strip()
+        # ---------------------------------------------
+        # Empty response
+        # ---------------------------------------------
+        if response is None:
+            return "⚠ Gemini returned no response."
+
+        # ---------------------------------------------
+        # Normal response
+        # ---------------------------------------------
+        if getattr(response, "text", None):
+
+            return response.text.strip()
+
+        # ---------------------------------------------
+        # Fallback (new SDK sometimes stores text differently)
+        # ---------------------------------------------
+        try:
+
+            if (
+                response.candidates
+                and response.candidates[0].content.parts
+            ):
+
+                text = "".join(
+                    part.text
+                    for part in response.candidates[0].content.parts
+                    if hasattr(part, "text")
+                )
+
+                if text.strip():
+                    return text.strip()
+
+        except Exception:
+            pass
+
+        return "⚠ Gemini returned an empty response."
 
     except Exception as e:
 

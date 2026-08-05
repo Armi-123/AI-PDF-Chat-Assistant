@@ -244,203 +244,54 @@ def find_direct_pdf_answer(
 # SECTION-AWARE PDF SEARCH
 # =====================================================
 
-def find_section_content(
-    question,
-    pdf_content
-):
+def find_section_content(question, pdf_content):
+    """
+    Extract an entire resume section from the PDF.
+    """
 
-    if not question:
+    if not question or not pdf_content:
         return ""
 
-    if not pdf_content:
-        return ""
+    question = question.lower()
 
-    question_lower = question.lower().strip()
-
-
-    # =================================================
-    # SECTION KEYWORDS
-    # =================================================
-
-    section_keywords = {
-
+    section_map = {
         "skills": [
-            "skill",
-            "skills",
-            "technical skill",
-            "technical skills",
-            "skill set",
-            "technologies",
-            "programming skills",
-            "what can the candidate do"
+            "skill", "skills", "technology", "technologies",
+            "technical", "programming"
         ],
-
-        "tools": [
-            "tools",
-            "tools know",
-            "tools does",
-            "software",
-            "platforms",
-            "software tools"
-        ],
-
         "education": [
-            "education",
-            "educational background",
-            "education background",
-            "degree",
-            "qualification",
-            "academic background"
+            "education", "degree", "qualification",
+            "academic"
         ],
-
         "experience": [
-            "experience",
-            "work experience",
-            "professional experience",
-            "internship",
-            "internships",
-            "intern",
-            "worked",
-            "work history",
-            "employment",
-            "professional background",
-            "previous experience",
-            "previous internships"
+            "experience", "internship", "intern",
+            "employment", "worked", "job"
         ],
-
         "projects": [
-            "project",
-            "projects",
-            "projects listed",
-            "projects included",
-            "project experience"
+            "project", "projects"
         ],
-
         "certifications": [
-            "certification",
-            "certifications",
-            "certificate",
-            "certificates"
+            "certification", "certificate"
         ]
     }
 
+    target_section = None
 
-    # =================================================
-    # FIND MATCHED SECTION
-    # =================================================
-
-    matched_section = None
-
-    for section, keywords in section_keywords.items():
-
-        for keyword in keywords:
-
-            if keyword in question_lower:
-
-                matched_section = section
-
-                break
-
-        if matched_section:
-
+    for section, keywords in section_map.items():
+        if any(word in question for word in keywords):
+            target_section = section
             break
 
-
-    if not matched_section:
-
+    if target_section is None:
         return ""
 
+    lines = [
+        line.strip()
+        for line in pdf_content.splitlines()
+        if line.strip()
+    ]
 
-    # =================================================
-    # SECTION HEADINGS
-    # =================================================
-
-    section_patterns = {
-
-        "skills": [
-            r"^skills$",
-            r"^technical\s+skills$",
-            r"^technical\s+skill$",
-            r"^skill\s+set$"
-        ],
-
-        "tools": [
-            r"^tools$",
-            r"^tools\s*&\s*platforms$",
-            r"^tools\s+and\s+platforms$"
-        ],
-
-        "education": [
-            r"^education$",
-            r"^educational\s+background$",
-            r"^academic\s+background$"
-        ],
-
-        "experience": [
-            r"^experience$",
-            r"^work\s+experience$",
-            r"^professional\s+experience$"
-        ],
-
-        "projects": [
-            r"^projects$",
-            r"^project\s+experience$"
-        ],
-
-        "certifications": [
-            r"^certifications?$",
-            r"^certificates?$"
-        ]
-    }
-
-
-    lines = pdf_content.splitlines()
-
-
-    # =================================================
-    # FIND SECTION START
-    # =================================================
-
-    start_index = None
-
-    for i, line in enumerate(lines):
-
-        clean_line = line.strip().lower()
-
-        if not clean_line:
-
-            continue
-
-        for pattern in section_patterns[
-            matched_section
-        ]:
-
-            if re.search(
-                pattern,
-                clean_line,
-                re.IGNORECASE
-            ):
-
-                start_index = i
-
-                break
-
-        if start_index is not None:
-
-            break
-
-
-    if start_index is None:
-
-        return ""
-
-
-    # =================================================
-    # NEXT MAJOR SECTIONS
-    # =================================================
-
-    next_sections = {
-
+    headings = [
         "summary",
         "education",
         "skills",
@@ -448,48 +299,34 @@ def find_section_content(
         "projects",
         "certifications",
         "achievements",
-        "contact",
-        "technical skills",
-        "tools & platforms",
-        "work experience",
-        "professional experience"
-    }
+        "contact"
+    ]
 
+    start = None
+
+    for i, line in enumerate(lines):
+        if line.lower() == target_section:
+            start = i
+            break
+
+    if start is None:
+        return ""
 
     result = []
 
+    for i in range(start + 1, len(lines)):
 
-    # =================================================
-    # EXTRACT SECTION
-    # =================================================
+        current = lines[i].strip()
 
-    for i in range(
-        start_index,
-        len(lines)
-    ):
+        if (
+            current.lower() in headings
+            and current.lower() != target_section
+        ):
+            break
 
-        line = lines[i].strip()
+        result.append(current)
 
-        if not line:
-
-            continue
-
-
-        if i > start_index:
-
-            lower_line = line.lower()
-
-            if lower_line in next_sections:
-
-                break
-
-
-        result.append(line)
-
-
-    return "\n".join(
-        result
-    ).strip()
+    return "\n".join(result).strip()
 
 def format_pdf_section_answer(question, section_text):
     """
@@ -1072,18 +909,49 @@ def is_relevant_to_pdf(
     min_score=SEMANTIC_MIN_SCORE
 ):
     """
-    Determine whether the user's question
-    is related to the uploaded PDF using
-    semantic search.
+    Decide whether the user's question should be answered
+    from the uploaded PDF.
     """
 
     if not question:
         return False
 
-    if semantic_index is None:
-        return False
+    question_lower = question.lower()
 
-    if not semantic_chunks:
+    pdf_keywords = [
+        "candidate",
+        "resume",
+        "cv",
+        "profile",
+        "education",
+        "degree",
+        "qualification",
+        "experience",
+        "internship",
+        "internships",
+        "projects",
+        "project",
+        "skills",
+        "skill",
+        "certification",
+        "certificate",
+        "phone",
+        "email",
+        "contact",
+        "linkedin",
+        "github",
+        "summary"
+    ]
+
+    # Immediate PDF detection
+    if any(keyword in question_lower for keyword in pdf_keywords):
+
+        if DEBUG:
+            print("PDF Related: True (Keyword Match)")
+
+        return True
+
+    if semantic_index is None or not semantic_chunks:
         return False
 
     try:
@@ -1103,17 +971,8 @@ def is_relevant_to_pdf(
 
             return False
 
-        # Reject very small matches
-
-        if len(relevant_text.split()) < 40:
-
-            if DEBUG:
-                print("PDF Related: False (Weak Match)")
-
-            return False
-
         query_words = set(
-            re.findall(r"\w+", question.lower())
+            re.findall(r"\w+", question_lower)
         )
 
         context_words = set(
@@ -1127,17 +986,17 @@ def is_relevant_to_pdf(
         if DEBUG:
             print(f"Semantic Overlap: {score:.2f}")
 
-        if score < 0.25:
+        if score >= 0.25:
 
             if DEBUG:
-                print("PDF Related: False (Low Overlap)")
+                print("PDF Related: True")
 
-            return False
+            return True
 
         if DEBUG:
-            print("PDF Related: True")
+            print("PDF Related: False")
 
-        return True
+        return False
 
     except Exception as e:
 
