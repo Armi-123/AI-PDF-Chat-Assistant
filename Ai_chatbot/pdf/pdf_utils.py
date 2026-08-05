@@ -81,44 +81,39 @@ def get_pdf_path(pdf_file):
 # =====================================================
 
 def clean_pdf_text(text):
-    """
-    Clean extracted PDF text while preserving
-    useful line and paragraph structure.
-    """
 
     if not text:
         return ""
 
-    # Normalize line endings
     text = text.replace("\r\n", "\n")
     text = text.replace("\r", "\n")
-
-    # Normalize tabs
     text = text.replace("\t", " ")
-
-    # Remove invisible/null characters
     text = text.replace("\x00", "")
 
-    # Normalize excessive spaces
+    # Remove multiple spaces
+    text = re.sub(r"[ ]{2,}", " ", text)
+
+    # Join broken words like:
+    # T echnology -> Technology
     text = re.sub(
-        r"[ ]{2,}",
-        " ",
+        r"\b([A-Za-z])\s([A-Za-z]{2,})\b",
+        r"\1\2",
         text
     )
 
-    # Remove spaces before newlines
+    # Add missing space:
+    # Ahmedabad2021 -> Ahmedabad 2021
     text = re.sub(
-        r"[ ]+\n",
-        "\n",
+        r"([A-Za-z])(\d)",
+        r"\1 \2",
         text
     )
 
-    # Remove excessive blank lines
-    text = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        text
-    )
+    # Remove spaces before newline
+    text = re.sub(r"[ ]+\n", "\n", text)
+
+    # Remove many blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
@@ -631,32 +626,6 @@ def extract_pdf_text(pdf_file):
         f"PDF extraction started: "
         f"{os.path.basename(pdf_path)}"
     )
-    
-    try:
-
-        pdf_reader = PdfReader(pdf_path)
-
-        full_text = ""
-
-        for page in pdf_reader.pages:
-
-            page_text = page.extract_text() or ""
-
-            full_text += page_text + "\n"
-
-        print(
-            f"PDF extraction successful | "
-            f"Pages: {len(pdf_reader.pages)} | "
-            f"Characters: {len(full_text)}"
-        )
-
-    except Exception as e:
-
-        print(
-            f"PDF extraction failed: {e}"
-        )
-
-        raise
 
     # =================================================
     # NORMAL EXTRACTION
@@ -727,10 +696,6 @@ def extract_pdf_text(pdf_file):
         extracted_pages
     )
     
-    print("=" * 60)
-    print("FULL EXTRACTED PDF TEXT:")
-    print(extracted_text)
-    print("=" * 60)
 
     # =================================================
     # OCR FALLBACK

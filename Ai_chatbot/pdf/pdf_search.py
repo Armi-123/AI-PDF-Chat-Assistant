@@ -696,9 +696,7 @@ def find_direct_pdf_answer(
         )
 
         if phones:
-            return "\n".join(
-                dict.fromkeys(phones)
-            )
+            return "\n".join(f"(+91) {a} {b}"for a, b in phones)
 
     # =================================================
     # LINKEDIN
