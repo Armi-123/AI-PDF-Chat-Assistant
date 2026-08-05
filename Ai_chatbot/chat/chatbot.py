@@ -124,9 +124,14 @@ def find_direct_pdf_answer(
     if is_phone_query:
 
         phones = re.findall(
-            r"(?:\+91[-\s]?)?[6-9]\d{9}",
+            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5})",
             pdf_content
         )
+
+        phones = [
+            p.replace(" ", "").replace("-", "")
+            for p in phones
+        ]
 
         if phones:
             return "\n".join(dict.fromkeys(phones))

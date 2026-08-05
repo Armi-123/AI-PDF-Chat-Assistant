@@ -2,7 +2,7 @@ import os
 import re
 
 from pypdf import PdfReader
-
+from config.settings import DEBUG
 from pdf.pdf_ocr import extract_text_ocr
 
 
@@ -782,32 +782,22 @@ def extract_pdf_text(pdf_file):
     )
     
     # =====================================================
-    # FINAL CLEANING
+    # EXTRACT PDF LINKS (DO NOT APPEND TO PDF TEXT)
     # =====================================================
 
-    extracted_text = clean_pdf_text(extracted_text)
-
     try:
+
         links = extract_pdf_links(pdf_file)
 
-        urls = []
-
-        if links.get("linkedin"):
-            urls.extend(links["linkedin"])
-
-        if links.get("github"):
-            urls.extend(links["github"])
-
-        for url in links.get("urls", []):
-            if url not in urls:
-                urls.append(url)
-
-        if urls:
-            extracted_text += "\n\n===== HIDDEN PDF LINKS =====\n"
-            extracted_text += "\n".join(urls)
+        if DEBUG:
+            print("=" * 60)
+            print("PDF LINKS FOUND:")
+            print(links)
+            print("=" * 60)
 
     except Exception as e:
-        print("PDF Link Append Error:", e)
+
+        print("PDF Link Extraction Error:", e)
 
     # =================================================
     # CACHE
