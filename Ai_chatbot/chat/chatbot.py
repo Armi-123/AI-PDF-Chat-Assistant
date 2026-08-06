@@ -85,15 +85,14 @@ def find_direct_pdf_answer(
     ):
 
         emails = re.findall(
-            r"[\w\.-]+@[\w\.-]+\.\w+",
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
             pdf_content
         )
 
-        if emails:
+        emails = list(dict.fromkeys(emails))
 
-            return "\n".join(
-                dict.fromkeys(emails)
-            )
+        if emails:
+            return "\n".join(emails)
 
 
     # =================================================
@@ -331,10 +330,15 @@ def find_section_content(question, pdf_content):
 
     headings = [
         "summary",
+        "professional summary",
         "education",
         "skills",
+        "technical skills",
         "experience",
+        "work experience",
+        "internships",
         "projects",
+        "project",
         "certifications",
         "achievements",
         "contact"
@@ -348,6 +352,10 @@ def find_section_content(question, pdf_content):
             break
 
     if start is None:
+
+        if target_section == "certifications":
+            return "No certifications found in the uploaded PDF."
+
         return ""
 
     result = []
@@ -374,6 +382,14 @@ def format_pdf_section_answer(question, section_text):
 
     if not section_text:
         return ""
+
+    section_text = section_text.replace("•", "\n• ")
+
+    section_text = re.sub(
+        r"\n{2,}",
+        "\n",
+        section_text
+    )
 
     return section_text.strip()
 
