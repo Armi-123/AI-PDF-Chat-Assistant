@@ -19,6 +19,7 @@ from pdf.pdf_utils import (
     clean_pdf_text,
     get_linkedin_url,
     get_github_url,
+    extract_pdf_links,
 )
 from utils.semantic_search import (
     semantic_search,
@@ -84,9 +85,36 @@ def find_direct_pdf_answer(
         or "mail id" in question_lower
     ):
 
+        # 1. Try PDF hyperlinks first
+        if pdf_files:
+
+            try:
+
+                links = extract_pdf_links(pdf_files[0])
+
+                emails = []
+
+                for url in links["urls"]:
+
+                    if url.lower().startswith("mailto:"):
+
+                        emails.append(
+                            url.replace("mailto:", "").strip()
+                        )
+
+                emails = list(dict.fromkeys(emails))
+
+                if emails:
+                    return "\n".join(emails)
+
+            except Exception:
+                pass
+
+        # 2. Fallback to extracted PDF text
         emails = re.findall(
             r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-            pdf_content
+            pdf_content,
+            re.IGNORECASE
         )
 
         emails = list(dict.fromkeys(emails))
