@@ -270,12 +270,36 @@ def find_section_content(question, pdf_content):
 
     section_map = {
         "skills": [
-            "skill", "skills", "technology", "technologies",
-            "technical", "programming"
+            "skill",
+            "skills",
+            "technical",
+            "technology",
+            "technologies",
+            "programming",
+            "programming language",
+            "programming languages",
+            "language",
+            "languages",
+            "python",
+            "sql",
+            "java",
+            "c++",
+            "javascript"
         ],
         "education": [
-            "education", "degree", "qualification",
-            "academic"
+            "education",
+            "degree",
+            "qualification",
+            "academic",
+            "university",
+            "college",
+            "institute",
+            "school",
+            "studied",
+            "study",
+            "graduation",
+            "b.tech",
+            "m.tech"
         ],
         "experience": [
             "experience", "internship", "intern",
