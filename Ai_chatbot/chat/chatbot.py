@@ -23,7 +23,8 @@ from pdf.pdf_utils import (
 )
 from utils.semantic_search import (
     semantic_search,
-    build_index
+    build_index,
+    get_pdf_path
 )
 from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
@@ -217,6 +218,10 @@ def find_direct_pdf_answer(
         or "what is the candidate name" in question_lower
         or "what is the name" in question_lower
         or "who is the person" in question_lower
+        or "who is this" in question_lower
+        or "whose resume" in question_lower
+        or "resume belongs to" in question_lower
+        or "applicant name" in question_lower
     ):
 
         # ---------------------------------------------
@@ -287,19 +292,22 @@ def find_direct_pdf_answer(
 
 def find_section_content(question, pdf_content):
     """
-    Extract an entire resume section from the PDF.
+    Extract an entire resume section from the uploaded PDF.
+    Supports multiple resume formats and heading variations.
     """
 
     if not question or not pdf_content:
         return ""
 
-    question = question.lower()
+    question = question.lower().strip()
 
     section_map = {
+
         "skills": [
             "skill",
             "skills",
             "technical",
+            "technical skills",
             "technology",
             "technologies",
             "programming",
@@ -313,37 +321,63 @@ def find_section_content(question, pdf_content):
             "c++",
             "javascript"
         ],
+
         "education": [
             "education",
             "degree",
             "qualification",
+            "qualifications",
             "academic",
+            "academic qualification",
+            "academic qualifications",
             "university",
             "college",
             "institute",
             "school",
-            "studied",
             "study",
+            "studied",
             "graduation",
             "b.tech",
             "m.tech"
         ],
+
         "experience": [
-            "experience", "internship", "intern",
-            "employment", "worked", "job"
+            "experience",
+            "internship",
+            "intern",
+            "employment",
+            "worked",
+            "job",
+            "work experience",
+            "professional experience",
+            "internship experience",
+            "career"
         ],
+
         "projects": [
-            "project", "projects"
+            "project",
+            "projects",
+            "academic project",
+            "major project",
+            "personal project",
+            "portfolio"
         ],
+
         "certifications": [
-            "certification", "certificate"
+            "certification",
+            "certifications",
+            "certificate",
+            "certificates",
+            "licenses",
+            "license"
         ]
     }
 
     target_section = None
 
     for section, keywords in section_map.items():
-        if any(word in question for word in keywords):
+
+        if any(keyword in question for keyword in keywords):
             target_section = section
             break
 
@@ -356,46 +390,52 @@ def find_section_content(question, pdf_content):
         if line.strip()
     ]
 
-    headings = [
-        "summary",
-        "professional summary",
-        "education",
-        "skills",
-        "technical skills",
-        "experience",
-        "work experience",
-        "internships",
-        "projects",
-        "project",
-        "certifications",
-        "achievements",
-        "contact"
-    ]
-
     start = None
 
+    # ----------------------------------------
+    # Find section heading dynamically
+    # ----------------------------------------
+
     for i, line in enumerate(lines):
-        if line.lower() == target_section:
+
+        current = line.lower().strip()
+
+        if any(
+            target_section == section and any(
+                keyword in current
+                for keyword in keywords
+            )
+            for section, keywords in section_map.items()
+        ):
             start = i
             break
 
     if start is None:
-
-        if target_section == "certifications":
-            return "No certifications found in the uploaded PDF."
-
         return ""
 
     result = []
 
+    # ----------------------------------------
+    # Find next heading dynamically
+    # ----------------------------------------
+
     for i in range(start + 1, len(lines)):
 
         current = lines[i].strip()
+        lower = current.lower()
 
-        if (
-            current.lower() in headings
-            and current.lower() != target_section
-        ):
+        is_next_heading = False
+
+        for section, keywords in section_map.items():
+
+            if section == target_section:
+                continue
+
+            if any(keyword in lower for keyword in keywords):
+                is_next_heading = True
+                break
+
+        if is_next_heading:
             break
 
         result.append(current)
@@ -978,6 +1018,8 @@ def handle_pdf_metadata_query(
 
     return ""
 
+
+
 # ===================================================== 
 # CHECK WHETHER QUESTION IS RELATED TO PDF 
 # =====================================================
@@ -1277,7 +1319,10 @@ def chatbot(
     if not pdf_content:
         return "⚠ Unable to read the uploaded PDF."
 
-    cache_key = (tuple(pdf_files))
+    cache_key = tuple(
+        get_pdf_path(f)
+        for f in pdf_files
+    )
 
     if cache_key not in semantic_cache:
         semantic_cache[cache_key] = build_index(pdf_content)
@@ -1380,7 +1425,35 @@ def chatbot(
         return metadata_answer
 
     # =====================================================
-    # 8. DIRECT PDF FACT SEARCH
+    # 8. RESUME SECTION SEARCH
+    # =====================================================
+
+    section_answer = find_section_content(
+        message,
+        pdf_content
+    )
+
+    if section_answer:
+
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + section_answer
+        )
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
+
+    # =====================================================
+    # 9. DIRECT PDF FACT SEARCH
     # =====================================================
 
     direct_answer = find_direct_pdf_answer(
@@ -1410,7 +1483,42 @@ def chatbot(
         return answer
 
     # ------------------------------------------------
-    # 9. DYNAMIC PDF DETECTION
+    # 10. FAST SECTION SEARCH
+    # ------------------------------------------------
+
+    section_text = find_section_content(
+        question=message,
+        pdf_content=pdf_content
+    )
+
+    if section_text:
+
+        if DEBUG:
+            print("📄 PDF SECTION MATCH FOUND")
+
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + format_pdf_section_answer(
+                question=message,
+                section_text=section_text
+            )
+        )
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
+
+
+    # ------------------------------------------------
+    # 11. DYNAMIC PDF DETECTION
     # ------------------------------------------------
 
     pdf_related = is_relevant_to_pdf(
@@ -1422,84 +1530,34 @@ def chatbot(
 
     if DEBUG:
         print(f"PDF Related: {pdf_related}")
-    
+
+
     # =====================================================
-    # 10. PDF-RELATED QUESTION SEARCH
+    # 12. PDF-RELATED QUESTION SEARCH
     # =====================================================
 
     if pdf_related:
 
-        relevant_text = ""
+        try:
 
-        # -------------------------------------------------
-        # STEP 1 : SECTION SEARCH
-        # -------------------------------------------------
-
-        section_text = find_section_content(
-            question=message,
-            pdf_content=pdf_content
-        )
-
-        if section_text:
-            
-            if DEBUG:
-                print("PDF SECTION MATCH FOUND")
-
-            pdf_section_answer = format_pdf_section_answer(
-                question=message,
-                section_text=section_text
+            relevant_text = semantic_search(
+                query=message,
+                index=semantic_index,
+                chunks=semantic_chunks,
+                top_k=SEMANTIC_TOP_K,
+                min_score=SEMANTIC_MIN_SCORE
             )
 
-            if pdf_section_answer:
+        except Exception as e:
 
-                answer = (
-                    "📄 Source: Uploaded PDF\n\n"
-                    + pdf_section_answer
-                )
+            if DEBUG:
+                print("Semantic Search Error:", e)
 
-                update_stats(
-                    answer,
-                    source="pdf"
-                )
+            relevant_text = ""
 
-                save_session(
-                    message,
-                    answer
-                )
-
-                return answer
-
-            # Use section as Gemini context
-            relevant_text = section_text
-
-
-        # -------------------------------------------------
-        # STEP 2 : SEMANTIC SEARCH
-        # -------------------------------------------------
-
-        if not relevant_text:
-
-            try:
-
-                relevant_text = semantic_search(
-                    query=message,
-                    index=semantic_index,
-                    chunks=semantic_chunks,
-                    top_k=SEMANTIC_TOP_K,
-                    min_score=SEMANTIC_MIN_SCORE
-                )
-
-            except Exception as e:
-
-                if DEBUG:
-                    print("Semantic Search Error:", e)
-
-                relevant_text = ""
-
-
-        # -------------------------------------------------
-        # STEP 3 : VALIDATE SEMANTIC RESULT
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # Validate semantic result
+        # ---------------------------------------------
 
         if relevant_text:
 
@@ -1513,13 +1571,12 @@ def chatbot(
             if DEBUG:
                 print(f"Overlap : {ratio:.2f}")
 
-            if ratio < 0.30:
+            if ratio < 0.20:
                 relevant_text = ""
 
-
-        # -------------------------------------------------
-        # STEP 4 : ASK GEMINI USING PDF CONTEXT
-        # -------------------------------------------------
+        # ---------------------------------------------
+        # Ask Gemini using PDF Context
+        # ---------------------------------------------
 
         if relevant_text:
 
@@ -1529,10 +1586,6 @@ def chatbot(
                 conversation=conversation,
                 pdf_fallback=False
             )
-
-            # ---------------------------------------------
-            # GEMINI SUCCESS
-            # ---------------------------------------------
 
             if result["success"]:
 
@@ -1553,10 +1606,7 @@ def chatbot(
 
                 return answer
 
-            # ---------------------------------------------
-            # GEMINI FAILED
-            # ---------------------------------------------
-
+            # Gemini failed -> return PDF context
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
                 + pdf_context_fallback(
@@ -1575,32 +1625,17 @@ def chatbot(
             )
 
             return answer
-
-        # -------------------------------------------------
-        # STEP 5 : NO RELEVANT PDF CONTENT
-        # -------------------------------------------------
-
-        pass
         
     # =====================================================
-    # 11. GENERAL GEMINI QUESTION
-    # =====================================================
-    
-    result = ask_gemini(
-        message=message,
-        pdf_context="",
-        conversation=conversation,
-        pdf_fallback=False
-    )
-
-
-    # =====================================================
-    # 12. GEMINI SUCCESS
+    # 13. GEMINI SUCCESS
     # =====================================================
 
     if result["success"]:
 
-        answer = f"🤖 Source: Gemini AI\n\n{result['answer']}"
+        answer = (
+            "🤖 Source: Gemini AI\n\n"
+            + result["answer"]
+        )
 
         update_stats(
             answer,
@@ -1616,10 +1651,10 @@ def chatbot(
 
 
     # =====================================================
-    # 13. GEMINI QUOTA ERROR
+    # 14. GEMINI QUOTA ERROR
     # =====================================================
 
-    if result["error_type"] == "quota":
+    elif result["error_type"] == "quota":
 
         return (
             "⚠ Gemini API quota exceeded.\n\n"
@@ -1629,10 +1664,10 @@ def chatbot(
 
 
     # =====================================================
-    # 14. GEMINI BUSY ERROR
+    # 15. GEMINI SERVER BUSY
     # =====================================================
 
-    if result["error_type"] == "busy":
+    elif result["error_type"] == "busy":
 
         return (
             "⚠ Gemini server is currently busy.\n\n"
@@ -1641,10 +1676,12 @@ def chatbot(
 
 
     # =====================================================
-    # 15. GEMINI OTHER ERROR
+    # 16. OTHER GEMINI ERROR
     # =====================================================
 
-    return (
-        "⚠ I couldn't generate a response at the moment. "
-        "Please try again in a few seconds."
-    )
+    else:
+
+        return (
+            "⚠ Unable to generate a response at the moment.\n\n"
+            "Please try again in a few seconds."
+        )
