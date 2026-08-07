@@ -15,17 +15,22 @@ from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
     extract_pdf_text,
+    extract_all_pdf_text,
+    extract_pdf_links,
     get_pdf_title,
     clean_pdf_text,
     get_linkedin_url,
     get_github_url,
-    extract_pdf_links,
+    find_section_content,
+    format_pdf_section_answer,
+    find_direct_pdf_answer,
 )
 from utils.semantic_search import (
     semantic_search,
     build_index,
     get_pdf_path
 )
+from pdf.pdf_utils import get_pdf_path
 from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
