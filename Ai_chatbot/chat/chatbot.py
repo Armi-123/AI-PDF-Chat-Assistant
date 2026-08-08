@@ -293,46 +293,92 @@ def find_direct_pdf_answer(
 def find_section_content(question, pdf_content):
     """
     Extract an entire resume section from the uploaded PDF.
+
+    Supports common resume section names and heading variations.
     """
 
     if not question or not pdf_content:
         return ""
 
-    question = question.lower().strip()
+    question_lower = question.lower().strip()
+
+    # =================================================
+    # SECTION KEYWORDS
+    # =================================================
 
     section_map = {
 
         "skills": [
+            "skill",
             "skills",
-            "technical skills",
             "technical",
-            "technologies"
+            "technical skills",
+            "technology",
+            "technologies",
+            "programming",
+            "programming language",
+            "programming languages",
+            "language",
+            "languages",
         ],
 
         "education": [
-            "education"
+            "education",
+            "degree",
+            "qualification",
+            "qualifications",
+            "academic",
+            "academic qualification",
+            "academic qualifications",
+            "university",
+            "college",
+            "institute",
+            "school",
+            "graduation",
+            "b.tech",
+            "m.tech",
+            "bachelor",
+            "master",
         ],
 
         "experience": [
             "experience",
             "work experience",
-            "professional experience"
+            "professional experience",
+            "internship",
+            "internships",
+            "intern",
+            "employment",
+            "career",
+            "worked",
+            "job",
         ],
 
         "projects": [
+            "project",
             "projects",
-            "project"
+            "academic project",
+            "academic projects",
+            "major project",
+            "major projects",
+            "personal project",
+            "personal projects",
+            "portfolio",
         ],
 
         "certifications": [
+            "certification",
             "certifications",
-            "certification"
+            "certificate",
+            "certificates",
+            "license",
+            "licenses",
         ]
     }
 
-    # ------------------------------------
-    # Which section is the user asking for?
-    # ------------------------------------
+    # =================================================
+    # FIND TARGET SECTION
+    # =================================================
 
     target_section = None
 
@@ -340,7 +386,8 @@ def find_section_content(question, pdf_content):
 
         for keyword in keywords:
 
-            if keyword in question:
+            if keyword in question_lower:
+
                 target_section = section
                 break
 
@@ -350,9 +397,9 @@ def find_section_content(question, pdf_content):
     if target_section is None:
         return ""
 
-    # ------------------------------------
-    # Prepare PDF lines
-    # ------------------------------------
+    # =================================================
+    # PREPARE PDF LINES
+    # =================================================
 
     lines = [
         line.strip()
@@ -360,22 +407,62 @@ def find_section_content(question, pdf_content):
         if line.strip()
     ]
 
-    # ------------------------------------
-    # Find exact heading
-    # ------------------------------------
+    if not lines:
+        return ""
+
+    # =================================================
+    # HELPER: CHECK WHETHER LINE IS SECTION HEADING
+    # =================================================
+
+    def is_section_heading(line, section_name=None):
+
+        lower = line.lower().strip()
+
+        # Remove common punctuation
+        cleaned = re.sub(
+            r"[:\-|]+$",
+            "",
+            lower
+        ).strip()
+
+        keywords = section_map.get(
+            section_name,
+            []
+        )
+
+        for keyword in keywords:
+
+            keyword_lower = keyword.lower().strip()
+
+            if cleaned == keyword_lower:
+                return True
+
+        return False
+
+    # =================================================
+    # FIND TARGET SECTION HEADING
+    # =================================================
 
     start = None
+
+    target_keywords = section_map[target_section]
 
     for i, line in enumerate(lines):
 
         lower = line.lower().strip()
 
-        for keyword in section_map[target_section]:
+        cleaned = re.sub(
+            r"[:\-|]+$",
+            "",
+            lower
+        ).strip()
 
-            if (
-                lower == keyword
-                or lower == keyword + ":"
-            ):
+        for keyword in target_keywords:
+
+            keyword_lower = keyword.lower().strip()
+
+            if cleaned == keyword_lower:
+
                 start = i
                 break
 
@@ -385,9 +472,9 @@ def find_section_content(question, pdf_content):
     if start is None:
         return ""
 
-    # ------------------------------------
-    # Collect section
-    # ------------------------------------
+    # =================================================
+    # COLLECT SECTION CONTENT
+    # =================================================
 
     result = []
 
@@ -398,40 +485,93 @@ def find_section_content(question, pdf_content):
         if not current:
             continue
 
-        lower = current.lower()
+        # ---------------------------------------------
+        # Stop when another resume section begins
+        # ---------------------------------------------
 
-        is_new_heading = False
+        is_next_heading = False
 
-        for section, keywords in section_map.items():
+        for section in section_map:
 
             if section == target_section:
                 continue
 
-            for keyword in keywords:
+            if is_section_heading(
+                current,
+                section
+            ):
 
-                if (
-                    lower == keyword
-                    or lower == keyword + ":"
-                ):
-                    is_new_heading = True
-                    break
-
-            if is_new_heading:
+                is_next_heading = True
                 break
 
-        if is_new_heading:
+        if is_next_heading:
             break
 
         result.append(current)
 
+    # =================================================
+    # RETURN CLEAN SECTION
+    # =================================================
+
     return "\n".join(result).strip()
 
-def format_pdf_section_answer(question, section_text):
+
+# =====================================================
+# FORMAT PDF SECTION ANSWER
+# =====================================================
+
+def format_pdf_section_answer(
+    question,
+    section_text
+):
+    """
+    Format extracted resume section for chatbot output.
+    """
 
     if not section_text:
         return ""
 
-    section_text = section_text.replace("•", "\n• ")
+    # ---------------------------------------------
+    # Normalize bullet points
+    # ---------------------------------------------
+
+    section_text = section_text.replace(
+        "•",
+        "\n• "
+    )
+
+    # ---------------------------------------------
+    # Normalize escaped characters from PDF
+    # ---------------------------------------------
+
+    section_text = section_text.replace(
+        "\\:",
+        ":"
+    )
+
+    section_text = section_text.replace(
+        "\\-",
+        "-"
+    )
+
+    section_text = section_text.replace(
+        "\\/",
+        "/"
+    )
+
+    # ---------------------------------------------
+    # Remove excessive spaces
+    # ---------------------------------------------
+
+    section_text = re.sub(
+        r"[ \t]+",
+        " ",
+        section_text
+    )
+
+    # ---------------------------------------------
+    # Remove excessive new lines
+    # ---------------------------------------------
 
     section_text = re.sub(
         r"\n{2,}",
@@ -1414,6 +1554,11 @@ def chatbot(
     )
 
     if section_answer:
+
+        section_answer = format_pdf_section_answer(
+            message,
+            section_answer
+        )
 
         answer = (
             "📄 Source: Uploaded PDF\n\n"
