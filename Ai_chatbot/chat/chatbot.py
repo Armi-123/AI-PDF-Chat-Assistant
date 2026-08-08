@@ -1139,9 +1139,8 @@ def handle_pdf_metadata_query(
     return ""
 
 
-
-# ===================================================== 
-# CHECK WHETHER QUESTION IS RELATED TO PDF 
+# =====================================================
+# CHECK WHETHER QUESTION IS RELATED TO PDF
 # =====================================================
 
 def is_relevant_to_pdf(
@@ -1153,47 +1152,221 @@ def is_relevant_to_pdf(
     """
     Decide whether the user's question should be answered
     from the uploaded PDF.
+
+    PDF-specific questions are routed to the uploaded PDF.
+    General knowledge/career questions are routed to Gemini.
     """
 
     if not question:
         return False
 
-    question_lower = question.lower()
+    question_lower = question.lower().strip()
 
-    pdf_keywords = [
-        "candidate",
-        "resume",
-        "cv",
-        "profile",
-        "education",
-        "degree",
-        "qualification",
-        "experience",
-        "internship",
-        "internships",
-        "projects",
-        "project",
-        "skills",
-        "skill",
-        "certification",
-        "certificate",
-        "phone",
-        "email",
-        "contact",
-        "linkedin",
-        "github",
-        "summary"
+    # =================================================
+    # 1. STRONG PDF / RESUME INTENT
+    # =================================================
+
+    pdf_intent_phrases = [
+        # Resume / CV
+        "my resume",
+        "my cv",
+        "this resume",
+        "this cv",
+        "uploaded resume",
+        "uploaded cv",
+        "resume file",
+        "cv file",
+
+        # PDF
+        "uploaded pdf",
+        "this pdf",
+        "the pdf",
+        "in the pdf",
+        "from the pdf",
+        "according to the pdf",
+        "mentioned in the pdf",
+        "listed in the pdf",
+        "shown in the pdf",
+
+        # Resume information
+        "resume skills",
+        "resume projects",
+        "resume experience",
+        "resume education",
+        "resume certification",
+        "resume certifications",
+        "resume summary",
+
+        # Candidate-specific
+        "candidate name",
+        "candidate's name",
+        "candidate skills",
+        "candidate experience",
+        "candidate projects",
+        "candidate education",
+        "candidate qualification",
+        "candidate certification",
+        "candidate certifications",
+
+        # Personal resume information
+        "my skills",
+        "my technical skills",
+        "my projects",
+        "my experience",
+        "my work experience",
+        "my internship",
+        "my internships",
+        "my education",
+        "my degree",
+        "my qualification",
+        "my certifications",
+        "my certification",
+        "my cgpa",
+        "my phone number",
+        "my email",
+        "my email address",
+        "my linkedin",
+        "my github",
+
+        # PDF-specific wording
+        "what is listed",
+        "what are listed",
+        "what is mentioned",
+        "what are mentioned",
+        "what does the resume say",
+        "what does my resume say",
+        "according to my resume"
     ]
 
-    # Immediate PDF detection
-    if any(keyword in question_lower for keyword in pdf_keywords):
+    # =================================================
+    # 2. IMMEDIATE PDF DETECTION
+    # =================================================
+
+    if any(
+        phrase in question_lower
+        for phrase in pdf_intent_phrases
+    ):
 
         if DEBUG:
-            print("PDF Related: True (Keyword Match)")
+            print(
+                "PDF Related: True "
+                "(Resume/PDF Intent)"
+            )
 
         return True
 
-    if semantic_index is None or not semantic_chunks:
+    # =================================================
+    # 3. PERSONAL PRONOUN + RESUME TOPIC
+    # =================================================
+
+    personal_words = [
+        "my",
+        "mine",
+        "i",
+        "me"
+    ]
+
+    resume_topics = [
+        "skill",
+        "skills",
+        "project",
+        "projects",
+        "experience",
+        "internship",
+        "internships",
+        "education",
+        "degree",
+        "qualification",
+        "certification",
+        "certifications",
+        "profile",
+        "summary"
+    ]
+
+    has_personal_context = any(
+        re.search(
+            rf"\b{re.escape(word)}\b",
+            question_lower
+        )
+        for word in personal_words
+    )
+
+    has_resume_topic = any(
+        re.search(
+            rf"\b{re.escape(word)}\b",
+            question_lower
+        )
+        for word in resume_topics
+    )
+
+    if (
+        has_personal_context
+        and has_resume_topic
+    ):
+
+        if DEBUG:
+            print(
+                "PDF Related: True "
+                "(Personal Resume Question)"
+            )
+
+        return True
+
+    # =================================================
+    # 4. GENERAL QUESTIONS SHOULD NOT BE PDF QUESTIONS
+    # =================================================
+    #
+    # Examples:
+    #
+    # "What skills are required for a Data Analyst?"
+    # "What is Machine Learning?"
+    # "Who is MS Dhoni?"
+    # "Write Python odd even code"
+    #
+    # These should go to Gemini.
+
+    general_question_phrases = [
+        "required skills",
+        "required skill",
+        "skills required",
+        "skill required",
+        "skills needed",
+        "skills need",
+        "what skills should",
+        "what skills are needed",
+        "what skills are required",
+        "how to become",
+        "career in",
+        "career skills",
+        "job skills",
+        "data analyst skills",
+        "data scientist skills",
+        "machine learning skills",
+        "python skills",
+        "sql skills"
+    ]
+
+    if any(
+        phrase in question_lower
+        for phrase in general_question_phrases
+    ):
+
+        if DEBUG:
+            print(
+                "PDF Related: False "
+                "(General Career/Knowledge Question)"
+            )
+
+        return False
+
+    # =================================================
+    # 5. SEMANTIC SEARCH
+    # =================================================
+
+    if (
+        semantic_index is None
+        or not semantic_chunks
+    ):
         return False
 
     try:
@@ -1209,47 +1382,78 @@ def is_relevant_to_pdf(
         if not relevant_text:
 
             if DEBUG:
-                print("PDF Related: False")
+                print(
+                    "PDF Related: False "
+                    "(No Semantic Result)"
+                )
 
             return False
 
+        # ---------------------------------------------
+        # Calculate word overlap
+        # ---------------------------------------------
+
         query_words = {
-
             word
-
-            for word in re.findall(r"\w+", question_lower)
-
+            for word in re.findall(
+                r"\w+",
+                question_lower
+            )
             if len(word) > 2
-
         }
 
         context_words = set(
-            re.findall(r"\w+", relevant_text.lower())
+            re.findall(
+                r"\w+",
+                relevant_text.lower()
+            )
         )
 
-        overlap = len(query_words & context_words)
+        overlap = len(
+            query_words & context_words
+        )
 
-        score = overlap / max(len(query_words), 1)
+        score = (
+            overlap
+            / max(len(query_words), 1)
+        )
 
         if DEBUG:
-            print(f"Semantic Overlap: {score:.2f}")
+            print(
+                f"Semantic Overlap: {score:.2f}"
+            )
 
-        if score >= 0.25:
+        # ------------------------------------------------
+        # IMPORTANT:
+        # Semantic match alone should not aggressively
+        # classify a general question as a PDF question.
+        # ------------------------------------------------
+
+        if score >= 0.40:
 
             if DEBUG:
-                print("PDF Related: True")
+                print(
+                    "PDF Related: True "
+                    "(Strong Semantic Match)"
+                )
 
             return True
 
         if DEBUG:
-            print("PDF Related: False")
+            print(
+                "PDF Related: False "
+                "(Weak Semantic Match)"
+            )
 
         return False
 
     except Exception as e:
 
         if DEBUG:
-            print("PDF relevance check failed:", e)
+            print(
+                "PDF relevance check failed:",
+                e
+            )
 
         return False
     
@@ -1548,35 +1752,45 @@ def chatbot(
     # 8. RESUME SECTION SEARCH
     # =====================================================
 
-    section_answer = find_section_content(
-        message,
-        pdf_content
+
+    section_intent = is_relevant_to_pdf(
+        question=message,
+        semantic_index=None,
+        semantic_chunks=None,
+        min_score=SEMANTIC_MIN_SCORE
     )
 
-    if section_answer:
+    if section_intent:
 
-        section_answer = format_pdf_section_answer(
+        section_answer = find_section_content(
             message,
-            section_answer
+            pdf_content
         )
 
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + section_answer
-        )
+        if section_answer:
 
-        update_stats(
-            answer,
-            source="pdf"
-        )
+            section_answer = format_pdf_section_answer(
+                message,
+                section_answer
+            )
 
-        save_session(
-            message,
-            answer
-        )
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + section_answer
+            )
 
-        return answer
+            update_stats(
+                answer,
+                source="pdf"
+            )
 
+            save_session(
+                message,
+                answer
+            )
+
+            return answer
+    
     # =====================================================
     # 9. DIRECT PDF FACT SEARCH
     # =====================================================
