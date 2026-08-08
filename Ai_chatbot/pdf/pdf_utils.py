@@ -785,6 +785,31 @@ def extract_pdf_text(pdf_file):
 
     return extracted_text
 
+def extract_all_pdf_text(pdf_files):
+    """
+    Extract text from one or more uploaded PDFs.
+    """
+
+    if not pdf_files:
+        return ""
+
+    all_text = []
+
+    for pdf in pdf_files:
+
+        try:
+
+            text = extract_pdf_text(pdf)
+
+            if text:
+                all_text.append(text)
+
+        except Exception as e:
+
+            if DEBUG:
+                print("PDF Extraction Error:", e)
+
+    return "\n\n".join(all_text).strip()
 
 # =====================================================
 # CLEAR PDF CACHE

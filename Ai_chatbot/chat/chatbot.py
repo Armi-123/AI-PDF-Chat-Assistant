@@ -18,17 +18,12 @@ from pdf.pdf_utils import (
     extract_all_pdf_text,
     extract_pdf_links,
     get_pdf_title,
-    clean_pdf_text,
     get_linkedin_url,
     get_github_url,
-    find_section_content,
-    format_pdf_section_answer,
-    find_direct_pdf_answer,
 )
 from utils.semantic_search import (
     semantic_search,
     build_index,
-    get_pdf_path
 )
 from pdf.pdf_utils import get_pdf_path
 from features.chat_statistics import update_stats
@@ -298,7 +293,6 @@ def find_direct_pdf_answer(
 def find_section_content(question, pdf_content):
     """
     Extract an entire resume section from the uploaded PDF.
-    Supports multiple resume formats and heading variations.
     """
 
     if not question or not pdf_content:
@@ -309,85 +303,56 @@ def find_section_content(question, pdf_content):
     section_map = {
 
         "skills": [
-            "skill",
             "skills",
-            "technical",
             "technical skills",
-            "technology",
-            "technologies",
-            "programming",
-            "programming language",
-            "programming languages",
-            "language",
-            "languages",
-            "python",
-            "sql",
-            "java",
-            "c++",
-            "javascript"
+            "technical",
+            "technologies"
         ],
 
         "education": [
-            "education",
-            "degree",
-            "qualification",
-            "qualifications",
-            "academic",
-            "academic qualification",
-            "academic qualifications",
-            "university",
-            "college",
-            "institute",
-            "school",
-            "study",
-            "studied",
-            "graduation",
-            "b.tech",
-            "m.tech"
+            "education"
         ],
 
         "experience": [
             "experience",
-            "internship",
-            "intern",
-            "employment",
-            "worked",
-            "job",
             "work experience",
-            "professional experience",
-            "internship experience",
-            "career"
+            "professional experience"
         ],
 
         "projects": [
-            "project",
             "projects",
-            "academic project",
-            "major project",
-            "personal project",
-            "portfolio"
+            "project"
         ],
 
         "certifications": [
-            "certification",
             "certifications",
-            "certificate",
-            "certificates",
-            "licenses",
-            "license"
+            "certification"
         ]
     }
+
+    # ------------------------------------
+    # Which section is the user asking for?
+    # ------------------------------------
 
     target_section = None
 
     for section, keywords in section_map.items():
 
-        if any(keyword in question for keyword in keywords):
-            target_section = section
+        for keyword in keywords:
+
+            if keyword in question:
+                target_section = section
+                break
+
+        if target_section:
             break
 
     if target_section is None:
         return ""
+
+    # ------------------------------------
+    # Prepare PDF lines
+    # ------------------------------------
 
     lines = [
         line.strip()
@@ -395,52 +360,66 @@ def find_section_content(question, pdf_content):
         if line.strip()
     ]
 
-    start = None
+    # ------------------------------------
+    # Find exact heading
+    # ------------------------------------
 
-    # ----------------------------------------
-    # Find section heading dynamically
-    # ----------------------------------------
+    start = None
 
     for i, line in enumerate(lines):
 
-        current = line.lower().strip()
+        lower = line.lower().strip()
 
-        if any(
-            target_section == section and any(
-                keyword in current
-                for keyword in keywords
-            )
-            for section, keywords in section_map.items()
-        ):
-            start = i
+        for keyword in section_map[target_section]:
+
+            if (
+                lower == keyword
+                or lower == keyword + ":"
+            ):
+                start = i
+                break
+
+        if start is not None:
             break
 
     if start is None:
         return ""
 
-    result = []
+    # ------------------------------------
+    # Collect section
+    # ------------------------------------
 
-    # ----------------------------------------
-    # Find next heading dynamically
-    # ----------------------------------------
+    result = []
 
     for i in range(start + 1, len(lines)):
 
         current = lines[i].strip()
+
+        if not current:
+            continue
+
         lower = current.lower()
 
-        is_next_heading = False
+        is_new_heading = False
 
         for section, keywords in section_map.items():
 
             if section == target_section:
                 continue
 
-            if any(keyword in lower for keyword in keywords):
-                is_next_heading = True
+            for keyword in keywords:
+
+                if (
+                    lower == keyword
+                    or lower == keyword + ":"
+                ):
+                    is_new_heading = True
+                    break
+
+            if is_new_heading:
                 break
 
-        if is_next_heading:
+        if is_new_heading:
             break
 
         result.append(current)
@@ -448,10 +427,6 @@ def find_section_content(question, pdf_content):
     return "\n".join(result).strip()
 
 def format_pdf_section_answer(question, section_text):
-    """
-    Format section content extracted directly
-    from the uploaded PDF.
-    """
 
     if not section_text:
         return ""
@@ -1488,41 +1463,6 @@ def chatbot(
         return answer
 
     # ------------------------------------------------
-    # 10. FAST SECTION SEARCH
-    # ------------------------------------------------
-
-    section_text = find_section_content(
-        question=message,
-        pdf_content=pdf_content
-    )
-
-    if section_text:
-
-        if DEBUG:
-            print("📄 PDF SECTION MATCH FOUND")
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + format_pdf_section_answer(
-                question=message,
-                section_text=section_text
-            )
-        )
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-
-        save_session(
-            message,
-            answer
-        )
-
-        return answer
-
-
-    # ------------------------------------------------
     # 11. DYNAMIC PDF DETECTION
     # ------------------------------------------------
 
@@ -1632,7 +1572,18 @@ def chatbot(
             return answer
         
     # =====================================================
-    # 13. GEMINI SUCCESS
+    # 13. GENERAL GEMINI QUESTION
+    # =====================================================
+
+    result = ask_gemini(
+        message=message,
+        pdf_context="",
+        conversation=conversation,
+        pdf_fallback=False
+    )
+
+    # =====================================================
+    # 14. GEMINI SUCCESS
     # =====================================================
 
     if result["success"]:
@@ -1654,12 +1605,11 @@ def chatbot(
 
         return answer
 
-
     # =====================================================
-    # 14. GEMINI QUOTA ERROR
+    # 15. GEMINI QUOTA ERROR
     # =====================================================
 
-    elif result["error_type"] == "quota":
+    if result["error_type"] == "quota":
 
         return (
             "⚠ Gemini API quota exceeded.\n\n"
@@ -1667,26 +1617,22 @@ def chatbot(
             "or use another Gemini API key."
         )
 
-
     # =====================================================
-    # 15. GEMINI SERVER BUSY
+    # 16. GEMINI SERVER BUSY
     # =====================================================
 
-    elif result["error_type"] == "busy":
+    if result["error_type"] == "busy":
 
         return (
             "⚠ Gemini server is currently busy.\n\n"
             "Please try again after a few seconds."
         )
 
-
     # =====================================================
-    # 16. OTHER GEMINI ERROR
+    # OTHER ERROR
     # =====================================================
 
-    else:
-
-        return (
-            "⚠ Unable to generate a response at the moment.\n\n"
-            "Please try again in a few seconds."
-        )
+    return (
+        "⚠ Unable to generate a response at the moment.\n\n"
+        "Please try again in a few seconds."
+    )
