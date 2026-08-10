@@ -1331,19 +1331,36 @@ def is_relevant_to_pdf(
         "skills required",
         "skill required",
         "skills needed",
+        "skill needed",
         "skills need",
         "what skills should",
         "what skills are needed",
         "what skills are required",
+        "which skills are required",
+        "which skills should",
         "how to become",
+        "how can i become",
         "career in",
         "career skills",
         "job skills",
         "data analyst skills",
         "data scientist skills",
         "machine learning skills",
+        "ai skills",
         "python skills",
-        "sql skills"
+        "sql skills",
+        "what is machine learning",
+        "what is artificial intelligence",
+        "what is python",
+        "what is sql",
+        "who is",
+        "write python",
+        "write code",
+        "give me code",
+        "how to learn",
+        "what should i learn",
+        "which course",
+        "which skills to learn"
     ]
 
     if any(
@@ -1752,45 +1769,35 @@ def chatbot(
     # 8. RESUME SECTION SEARCH
     # =====================================================
 
-
-    section_intent = is_relevant_to_pdf(
-        question=message,
-        semantic_index=None,
-        semantic_chunks=None,
-        min_score=SEMANTIC_MIN_SCORE
+    section_answer = find_section_content(
+        message,
+        pdf_content
     )
 
-    if section_intent:
+    if section_answer:
 
-        section_answer = find_section_content(
+        section_answer = format_pdf_section_answer(
             message,
-            pdf_content
+            section_answer
         )
 
-        if section_answer:
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + section_answer
+        )
 
-            section_answer = format_pdf_section_answer(
-                message,
-                section_answer
-            )
+        update_stats(
+            answer,
+            source="pdf"
+        )
 
-            answer = (
-                "📄 Source: Uploaded PDF\n\n"
-                + section_answer
-            )
+        save_session(
+            message,
+            answer
+        )
 
-            update_stats(
-                answer,
-                source="pdf"
-            )
+        return answer
 
-            save_session(
-                message,
-                answer
-            )
-
-            return answer
-    
     # =====================================================
     # 9. DIRECT PDF FACT SEARCH
     # =====================================================
