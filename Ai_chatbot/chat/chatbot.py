@@ -56,237 +56,6 @@ def clean_source_labels(answer):
     return answer.strip()
 
 # =====================================================
-# DIRECT PDF FACT SEARCH
-# =====================================================
-
-def find_direct_pdf_answer(
-    question,
-    pdf_content,
-    pdf_files=None
-):
-
-
-    if not question:
-        return ""
-
-    if not pdf_content:
-        return ""
-
-    question_lower = question.lower().strip()
-
-
-    # =================================================
-    # EMAIL
-    # =================================================
-
-    if (
-        "email" in question_lower
-        or "email address" in question_lower
-        or "email id" in question_lower
-        or "mail id" in question_lower
-    ):
-
-        # 1. Try PDF hyperlinks first
-        if pdf_files:
-
-            try:
-
-                links = extract_pdf_links(pdf_files[0])
-
-                emails = []
-
-                for url in links["urls"]:
-
-                    if url.lower().startswith("mailto:"):
-
-                        emails.append(
-                            url.replace("mailto:", "").strip()
-                        )
-
-                emails = list(dict.fromkeys(emails))
-
-                if emails:
-                    return "\n".join(emails)
-
-            except Exception:
-                pass
-
-        # 2. Fallback to extracted PDF text
-        emails = re.findall(
-            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-            pdf_content,
-            re.IGNORECASE
-        )
-
-        emails = list(dict.fromkeys(emails))
-
-        if emails:
-            return "\n".join(emails)
-
-
-    # =================================================
-    # PHONE NUMBER
-    # =================================================
-
-    phone_queries = [
-        "phone number",
-        "mobile number",
-        "contact number",
-        "candidate phone",
-        "candidate mobile",
-        "candidate contact",
-        "person phone",
-        "person mobile",
-        "resume phone",
-        "resume contact",
-        "contact details",
-        "candidate phone number",
-        "candidate mobile number"
-    ]
-
-    if any(query in question_lower for query in phone_queries):
-
-        phone_matches = re.findall(
-            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
-            pdf_content
-        )
-
-        formatted_numbers = []
-        seen = set()
-
-        for phone in phone_matches:
-
-            phone = re.sub(r"[\s\-]", "", phone)
-
-            if len(phone) != 10:
-                continue
-
-            if phone in seen:
-                continue
-
-            seen.add(phone)
-
-            formatted_numbers.append(
-                f"(+91) {phone[:5]} {phone[5:]}"
-            )
-
-        if formatted_numbers:
-            return "\n".join(formatted_numbers)
-        
-    # =================================================
-    # LINKEDIN
-    # =================================================
-
-    if "linkedin" in question_lower:
-
-        if pdf_files:
-
-            linkedin = get_linkedin_url(pdf_files[0])
-
-            if linkedin:
-                return linkedin
-
-        if "linkedin" in pdf_content.lower():
-            return "LinkedIn profile is mentioned in the uploaded PDF."
-
-    # =================================================
-    # GITHUB
-    # =================================================
-
-    if "github" in question_lower:
-
-        if pdf_files:
-
-            github = get_github_url(pdf_files[0])
-
-            if github:
-                return github
-
-        if "github" in pdf_content.lower():
-            return "GitHub profile is mentioned in the uploaded PDF."
-
-    # =================================================
-    # CANDIDATE NAME
-    # =================================================
-
-    if (
-        "candidate name" in question_lower
-        or "candidate's name" in question_lower
-        or "person name" in question_lower
-        or "person's name" in question_lower
-        or "who is the candidate" in question_lower
-        or "what is the candidate name" in question_lower
-        or "what is the name" in question_lower
-        or "who is the person" in question_lower
-        or "who is this" in question_lower
-        or "whose resume" in question_lower
-        or "resume belongs to" in question_lower
-        or "applicant name" in question_lower
-    ):
-
-        # ---------------------------------------------
-        # Try PDF title
-        # ---------------------------------------------
-
-        title = get_pdf_title(
-            pdf_content
-        )
-
-        if (
-            title
-            and title != "Unknown PDF"
-            and not title.lower().endswith(".pdf")
-        ):
-
-            return title
-
-
-        # ---------------------------------------------
-        # Try first meaningful line
-        # ---------------------------------------------
-
-        lines = [
-            line.strip()
-            for line in pdf_content.splitlines()
-            if line.strip()
-        ]
-
-        if lines:
-
-            first_line = lines[0]
-
-            # Avoid returning generic section headings
-            invalid_names = {
-                "resume",
-                "curriculum vitae",
-                "cv",
-                "summary",
-                "profile",
-                "contact"
-            }
-
-            if first_line.lower() not in invalid_names:
-
-                return first_line
-
-
-        # ---------------------------------------------
-        # Common name pattern
-        # ---------------------------------------------
-
-        name_match = re.search(
-            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
-            pdf_content
-        )
-
-        if name_match:
-
-            return name_match.group(1)
-
-
-    return ""
-
-# =====================================================
 # SECTION-AWARE PDF SEARCH
 # =====================================================
 
@@ -1138,6 +907,236 @@ def handle_pdf_metadata_query(
 
     return ""
 
+# =====================================================
+# DIRECT PDF FACT SEARCH
+# =====================================================
+
+def find_direct_pdf_answer(
+    question,
+    pdf_content,
+    pdf_files=None
+):
+
+
+    if not question:
+        return ""
+
+    if not pdf_content:
+        return ""
+
+    question_lower = question.lower().strip()
+
+
+    # =================================================
+    # EMAIL
+    # =================================================
+
+    if (
+        "email" in question_lower
+        or "email address" in question_lower
+        or "email id" in question_lower
+        or "mail id" in question_lower
+    ):
+
+        # 1. Try PDF hyperlinks first
+        if pdf_files:
+
+            try:
+
+                links = extract_pdf_links(pdf_files[0])
+
+                emails = []
+
+                for url in links["urls"]:
+
+                    if url.lower().startswith("mailto:"):
+
+                        emails.append(
+                            url.replace("mailto:", "").strip()
+                        )
+
+                emails = list(dict.fromkeys(emails))
+
+                if emails:
+                    return "\n".join(emails)
+
+            except Exception:
+                pass
+
+        # 2. Fallback to extracted PDF text
+        emails = re.findall(
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+            pdf_content,
+            re.IGNORECASE
+        )
+
+        emails = list(dict.fromkeys(emails))
+
+        if emails:
+            return "\n".join(emails)
+
+
+    # =================================================
+    # PHONE NUMBER
+    # =================================================
+
+    phone_queries = [
+        "phone number",
+        "mobile number",
+        "contact number",
+        "candidate phone",
+        "candidate mobile",
+        "candidate contact",
+        "person phone",
+        "person mobile",
+        "resume phone",
+        "resume contact",
+        "contact details",
+        "candidate phone number",
+        "candidate mobile number"
+    ]
+
+    if any(query in question_lower for query in phone_queries):
+
+        phone_matches = re.findall(
+            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
+            pdf_content
+        )
+
+        formatted_numbers = []
+        seen = set()
+
+        for phone in phone_matches:
+
+            phone = re.sub(r"[\s\-]", "", phone)
+
+            if len(phone) != 10:
+                continue
+
+            if phone in seen:
+                continue
+
+            seen.add(phone)
+
+            formatted_numbers.append(
+                f"(+91) {phone[:5]} {phone[5:]}"
+            )
+
+        if formatted_numbers:
+            return "\n".join(formatted_numbers)
+        
+    # =================================================
+    # LINKEDIN
+    # =================================================
+
+    if "linkedin" in question_lower:
+
+        if pdf_files:
+
+            linkedin = get_linkedin_url(pdf_files[0])
+
+            if linkedin:
+                return linkedin
+
+        if "linkedin" in pdf_content.lower():
+            return "LinkedIn profile is mentioned in the uploaded PDF."
+
+    # =================================================
+    # GITHUB
+    # =================================================
+
+    if "github" in question_lower:
+
+        if pdf_files:
+
+            github = get_github_url(pdf_files[0])
+
+            if github:
+                return github
+
+        if "github" in pdf_content.lower():
+            return "GitHub profile is mentioned in the uploaded PDF."
+
+    # =================================================
+    # CANDIDATE NAME
+    # =================================================
+
+    if (
+        "candidate name" in question_lower
+        or "candidate's name" in question_lower
+        or "person name" in question_lower
+        or "person's name" in question_lower
+        or "who is the candidate" in question_lower
+        or "what is the candidate name" in question_lower
+        or "what is the name" in question_lower
+        or "who is the person" in question_lower
+        or "who is this" in question_lower
+        or "whose resume" in question_lower
+        or "resume belongs to" in question_lower
+        or "applicant name" in question_lower
+    ):
+
+        # ---------------------------------------------
+        # Try PDF title
+        # ---------------------------------------------
+
+        title = get_pdf_title(
+            pdf_content
+        )
+
+        if (
+            title
+            and title != "Unknown PDF"
+            and not title.lower().endswith(".pdf")
+        ):
+
+            return title
+
+
+        # ---------------------------------------------
+        # Try first meaningful line
+        # ---------------------------------------------
+
+        lines = [
+            line.strip()
+            for line in pdf_content.splitlines()
+            if line.strip()
+        ]
+
+        if lines:
+
+            first_line = lines[0]
+
+            # Avoid returning generic section headings
+            invalid_names = {
+                "resume",
+                "curriculum vitae",
+                "cv",
+                "summary",
+                "profile",
+                "contact"
+            }
+
+            if first_line.lower() not in invalid_names:
+
+                return first_line
+
+
+        # ---------------------------------------------
+        # Common name pattern
+        # ---------------------------------------------
+
+        name_match = re.search(
+            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
+            pdf_content
+        )
+
+        if name_match:
+
+            return name_match.group(1)
+
+
+    return ""
 
 # =====================================================
 # CHECK WHETHER QUESTION IS RELATED TO PDF
@@ -1315,53 +1314,34 @@ def is_relevant_to_pdf(
     # =================================================
     # 4. GENERAL QUESTIONS SHOULD NOT BE PDF QUESTIONS
     # =================================================
-    #
-    # Examples:
-    #
-    # "What skills are required for a Data Analyst?"
-    # "What is Machine Learning?"
-    # "Who is MS Dhoni?"
-    # "Write Python odd even code"
-    #
-    # These should go to Gemini.
 
     general_question_phrases = [
-        "required skills",
-        "required skill",
-        "skills required",
-        "skill required",
-        "skills needed",
-        "skill needed",
-        "skills need",
-        "what skills should",
-        "what skills are needed",
-        "what skills are required",
-        "which skills are required",
-        "which skills should",
-        "how to become",
-        "how can i become",
-        "career in",
-        "career skills",
-        "job skills",
-        "data analyst skills",
-        "data scientist skills",
-        "machine learning skills",
-        "ai skills",
-        "python skills",
-        "sql skills",
-        "what is machine learning",
-        "what is artificial intelligence",
-        "what is python",
-        "what is sql",
-        "who is",
-        "write python",
-        "write code",
-        "give me code",
-        "how to learn",
-        "what should i learn",
-        "which course",
-        "which skills to learn"
-    ]
+    "required skills",
+    "required skill",
+    "skills required",
+    "skill required",
+    "skills needed",
+    "skill needed",
+
+    "skills should i learn",
+    "skill should i learn",
+    "what skills should i learn",
+    "what skills should i know",
+    "what skills do i need",
+    "what skills are needed",
+    "what skills are required",
+
+    "how to become",
+    "career in",
+    "career skills",
+    "job skills",
+
+    "data analyst skills",
+    "data scientist skills",
+    "machine learning skills",
+    "python skills",
+    "sql skills"
+]
 
     if any(
         phrase in question_lower
