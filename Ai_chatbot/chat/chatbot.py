@@ -1479,75 +1479,6 @@ def chatbot(
         )
         
     # =====================================================
-    # RESUME REVIEW DETECTION
-    # =====================================================
-
-    question_lower = message.lower()
-
-    resume_keywords = [
-        "resume",
-        "cv",
-        "profile",
-        "candidate",
-        "applicant"
-    ]
-
-    review_keywords = [
-        "resume",
-        "cv",
-        "ats",
-
-        "review my resume",
-        "analyze my resume",
-        "analyse my resume",
-
-        "resume review",
-        "resume feedback",
-
-        "resume score",
-        "ats score",
-
-        "improve my resume",
-        "improve resume",
-
-        "strengths",
-        "weaknesses",
-
-        "missing skills",
-        "missing keywords",
-
-        "interview ready",
-
-        "job roles",
-        "salary",
-        "companies",
-        "recruiter",
-        "resume summary",
-        "resume suggestions",
-        "compare my resume"
-    ]
-
-    if (
-        any(word in question_lower for word in resume_keywords)
-        and
-        any(word in question_lower for word in review_keywords)
-    ):
-
-        answer = review_resume(pdf_files)
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-
-        save_session(
-            message,
-            answer
-        )
-
-        return answer
-
-    # =====================================================
     # 2. BUILD CONVERSATION MEMORY
     # =====================================================
 
@@ -1577,9 +1508,88 @@ def chatbot(
     relevant_text = ""
     answer = ""
 
-
     # =====================================================
-    # 4. NO PDF MODE
+    # 4. RESUME REVIEW DETECTION
+    # =====================================================
+
+    question_lower = message.casefold().strip()
+
+    resume_review_phrases = [
+        "review my resume",
+        "review my cv",
+        "analyze my resume",
+        "analyse my resume",
+        "analyze my cv",
+        "analyse my cv",
+        "resume review",
+        "resume feedback",
+        "resume score",
+        "cv score",
+        "ats score",
+        "ats review",
+        "ats analysis",
+        "improve my resume",
+        "improve my cv",
+        "resume suggestions",
+        "resume improvement",
+        "resume strengths",
+        "resume weaknesses",
+        "resume missing skills",
+        "resume missing keywords",
+        "resume job roles",
+        "compare my resume",
+        "compare my cv",
+        "is my resume interview ready",
+        "is my resume ats friendly",
+    ]
+
+    is_resume_review_request = any(
+        phrase in question_lower
+        for phrase in resume_review_phrases
+    )
+
+    if is_resume_review_request:
+
+        if not pdf_files:
+
+            return (
+                "📄 Please upload your resume PDF first "
+                "to use Resume Review."
+            )
+
+        try:
+
+            answer = review_resume(
+                pdf_files
+            )
+
+            update_stats(
+                answer,
+                source="pdf"
+            )
+
+            save_session(
+                message,
+                answer
+            )
+
+            return answer
+
+        except Exception as e:
+
+            if DEBUG:
+                print(
+                    "Resume Review Error:",
+                    e
+                )
+
+            return (
+                "⚠ Unable to review the resume right now.\n\n"
+                "Please try again."
+            )
+    
+    # =====================================================
+    # 5. NO PDF MODE
     # =====================================================
 
     if not pdf_files:
@@ -1632,7 +1642,7 @@ def chatbot(
         )
 
     # =====================================================
-    # 5. EXTRACT ALL PDF TEXT
+    # 6. EXTRACT ALL PDF TEXT
     # =====================================================
 
     pdf_content = extract_all_pdf_text(pdf_files)
@@ -1654,7 +1664,7 @@ def chatbot(
         print(f"📄 PDF Ready | Chunks: {len(semantic_chunks)}")
         
     # =====================================================
-    # 6. PDF SUMMARY QUERY
+    # 7. PDF SUMMARY QUERY
     # =====================================================
 
     message = re.sub(
@@ -1717,7 +1727,7 @@ def chatbot(
 
 
     # =====================================================
-    # 7. PDF METADATA QUERY
+    # 8. PDF METADATA QUERY
     # =====================================================
 
     metadata_answer = handle_pdf_metadata_query(
@@ -1746,7 +1756,7 @@ def chatbot(
         return metadata_answer
 
     # =====================================================
-    # 8. RESUME SECTION SEARCH
+    # 9. RESUME SECTION SEARCH
     # =====================================================
 
     section_answer = find_section_content(
@@ -1779,7 +1789,7 @@ def chatbot(
         return answer
 
     # =====================================================
-    # 9. DIRECT PDF FACT SEARCH
+    # 10. DIRECT PDF FACT SEARCH
     # =====================================================
 
     direct_answer = find_direct_pdf_answer(
