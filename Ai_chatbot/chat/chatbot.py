@@ -916,7 +916,13 @@ def find_direct_pdf_answer(
     pdf_content,
     pdf_files=None
 ):
+    """
+    Dynamically search for direct facts from the uploaded PDF.
 
+    Returns:
+        str: Direct PDF answer if a reliable fact is found.
+        "" : If no direct fact is found.
+    """
 
     if not question:
         return ""
@@ -924,82 +930,95 @@ def find_direct_pdf_answer(
     if not pdf_content:
         return ""
 
-    question_lower = question.lower().strip()
-
+    question_lower = question.casefold().strip()
 
     # =================================================
     # EMAIL
     # =================================================
 
-    if (
-        "email" in question_lower
-        or "email address" in question_lower
-        or "email id" in question_lower
-        or "mail id" in question_lower
+    if any(
+        phrase in question_lower
+        for phrase in [
+            "email",
+            "email address",
+            "email id",
+            "mail id"
+        ]
     ):
 
-        # 1. Try PDF hyperlinks first
+        # Try hyperlinks first
         if pdf_files:
 
             try:
 
-                links = extract_pdf_links(pdf_files[0])
+                for pdf_file in pdf_files:
 
-                emails = []
+                    links = extract_pdf_links(
+                        pdf_file
+                    )
 
-                for url in links["urls"]:
+                    for url in links.get("urls", []):
 
-                    if url.lower().startswith("mailto:"):
+                        url = str(url).strip()
 
-                        emails.append(
-                            url.replace("mailto:", "").strip()
-                        )
+                        if url.casefold().startswith(
+                            "mailto:"
+                        ):
 
-                emails = list(dict.fromkeys(emails))
+                            email = url[
+                                len("mailto:"):
+                            ].strip()
 
-                if emails:
-                    return "\n".join(emails)
+                            if email:
+                                return email
 
-            except Exception:
-                pass
+            except Exception as e:
 
-        # 2. Fallback to extracted PDF text
+                if DEBUG:
+                    print(
+                        "Email hyperlink extraction error:",
+                        e
+                    )
+
+        # Fallback to PDF text
         emails = re.findall(
             r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
             pdf_content,
             re.IGNORECASE
         )
 
-        emails = list(dict.fromkeys(emails))
+        emails = list(
+            dict.fromkeys(emails)
+        )
 
         if emails:
             return "\n".join(emails)
-
 
     # =================================================
     # PHONE NUMBER
     # =================================================
 
     phone_queries = [
+        "phone",
+        "mobile",
+        "contact number",
         "phone number",
         "mobile number",
-        "contact number",
+        "contact details",
         "candidate phone",
         "candidate mobile",
         "candidate contact",
-        "person phone",
-        "person mobile",
         "resume phone",
-        "resume contact",
-        "contact details",
-        "candidate phone number",
-        "candidate mobile number"
+        "resume contact"
     ]
 
-    if any(query in question_lower for query in phone_queries):
+    if any(
+        phrase in question_lower
+        for phrase in phone_queries
+    ):
 
         phone_matches = re.findall(
-            r"(?:\+91|\(\+91\))?[\s\-]*([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
+            r"(?:\+91[\s\-]*)?([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
             pdf_content
         )
 
@@ -1008,7 +1027,11 @@ def find_direct_pdf_answer(
 
         for phone in phone_matches:
 
-            phone = re.sub(r"[\s\-]", "", phone)
+            phone = re.sub(
+                r"[\s\-]",
+                "",
+                phone
+            )
 
             if len(phone) != 10:
                 continue
@@ -1023,8 +1046,10 @@ def find_direct_pdf_answer(
             )
 
         if formatted_numbers:
-            return "\n".join(formatted_numbers)
-        
+            return "\n".join(
+                formatted_numbers
+            )
+
     # =================================================
     # LINKEDIN
     # =================================================
@@ -1033,13 +1058,39 @@ def find_direct_pdf_answer(
 
         if pdf_files:
 
-            linkedin = get_linkedin_url(pdf_files[0])
+            try:
 
-            if linkedin:
-                return linkedin
+                for pdf_file in pdf_files:
 
-        if "linkedin" in pdf_content.lower():
-            return "LinkedIn profile is mentioned in the uploaded PDF."
+                    linkedin = get_linkedin_url(
+                        pdf_file
+                    )
+
+                    if linkedin:
+                        return linkedin
+
+            except Exception as e:
+
+                if DEBUG:
+                    print(
+                        "LinkedIn extraction error:",
+                        e
+                    )
+
+        linkedin_match = re.search(
+            r"https?://(?:www\.)?linkedin\.com/[^\s<>\]]+",
+            pdf_content,
+            re.IGNORECASE
+        )
+
+        if linkedin_match:
+            return linkedin_match.group(0)
+
+        if "linkedin" in pdf_content.casefold():
+            return (
+                "LinkedIn profile is mentioned "
+                "in the uploaded PDF."
+            )
 
     # =================================================
     # GITHUB
@@ -1049,36 +1100,171 @@ def find_direct_pdf_answer(
 
         if pdf_files:
 
-            github = get_github_url(pdf_files[0])
+            try:
 
-            if github:
-                return github
+                for pdf_file in pdf_files:
 
-        if "github" in pdf_content.lower():
-            return "GitHub profile is mentioned in the uploaded PDF."
+                    github = get_github_url(
+                        pdf_file
+                    )
+
+                    if github:
+                        return github
+
+            except Exception as e:
+
+                if DEBUG:
+                    print(
+                        "GitHub extraction error:",
+                        e
+                    )
+
+        github_match = re.search(
+            r"https?://(?:www\.)?github\.com/[^\s<>\]]+",
+            pdf_content,
+            re.IGNORECASE
+        )
+
+        if github_match:
+            return github_match.group(0)
+
+        if "github" in pdf_content.casefold():
+            return (
+                "GitHub profile is mentioned "
+                "in the uploaded PDF."
+            )
+
+    # =================================================
+    # CGPA
+    # =================================================
+
+    if (
+        "cgpa" in question_lower
+        or "gpa" in question_lower
+        or "grade point" in question_lower
+    ):
+
+        cgpa_patterns = [
+
+            r"\bCGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+
+            r"\bGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+
+            r"\b(?:CGPA|GPA)\s+of\s+(\d+(?:\.\d+)?)"
+
+        ]
+
+        for pattern in cgpa_patterns:
+
+            match = re.search(
+                pattern,
+                pdf_content,
+                re.IGNORECASE
+            )
+
+            if match:
+
+                return (
+                    f"Your CGPA is "
+                    f"{match.group(1)}."
+                )
+
+    # =================================================
+    # EDUCATION / DEGREE
+    # =================================================
+
+    education_terms = [
+        "education",
+        "educational background",
+        "degree",
+        "qualification",
+        "academic background",
+        "what did i study",
+        "what degree do i have"
+    ]
+
+    if any(
+        term in question_lower
+        for term in education_terms
+    ):
+
+        education_section = re.search(
+            r"(?:Education|Academic Background)"
+            r"(.*?)(?=\n(?:Skills|Experience|Projects|Certifications|Achievements)\b|\Z)",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if education_section:
+
+            text = education_section.group(1).strip()
+
+            if text:
+                return text
+
+        # Fallback around B.Tech
+        degree_match = re.search(
+            r".{0,150}"
+            r"(?:B\.?Tech|Bachelor(?:'s)?\s+of\s+Technology)"
+            r".{0,250}",
+            pdf_content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if degree_match:
+            return degree_match.group(0).strip()
+
+    # =================================================
+    # GRADUATION YEAR
+    # =================================================
+
+    if any(
+        term in question_lower
+        for term in [
+            "graduation year",
+            "graduated",
+            "graduation",
+            "when did i graduate",
+            "when did i complete my degree",
+            "passing year"
+        ]
+    ):
+
+        year_match = re.search(
+            r"(?:2021|2022|2023|2024|2025|2026)"
+            r"\s*[-–]\s*"
+            r"(20\d{2})",
+            pdf_content
+        )
+
+        if year_match:
+
+            return (
+                f"You completed your degree in "
+                f"{year_match.group(1)}."
+            )
 
     # =================================================
     # CANDIDATE NAME
     # =================================================
 
-    if (
-        "candidate name" in question_lower
-        or "candidate's name" in question_lower
-        or "person name" in question_lower
-        or "person's name" in question_lower
-        or "who is the candidate" in question_lower
-        or "what is the candidate name" in question_lower
-        or "what is the name" in question_lower
-        or "who is the person" in question_lower
-        or "who is this" in question_lower
-        or "whose resume" in question_lower
-        or "resume belongs to" in question_lower
-        or "applicant name" in question_lower
+    if any(
+        phrase in question_lower
+        for phrase in [
+            "candidate name",
+            "candidate's name",
+            "person name",
+            "person's name",
+            "who is the candidate",
+            "what is the candidate name",
+            "what is the name",
+            "who is the person",
+            "who is this",
+            "whose resume",
+            "resume belongs to",
+            "applicant name"
+        ]
     ):
-
-        # ---------------------------------------------
-        # Try PDF title
-        # ---------------------------------------------
 
         title = get_pdf_title(
             pdf_content
@@ -1087,15 +1273,10 @@ def find_direct_pdf_answer(
         if (
             title
             and title != "Unknown PDF"
-            and not title.lower().endswith(".pdf")
+            and not title.casefold().endswith(".pdf")
         ):
 
             return title
-
-
-        # ---------------------------------------------
-        # Try first meaningful line
-        # ---------------------------------------------
 
         lines = [
             line.strip()
@@ -1103,38 +1284,30 @@ def find_direct_pdf_answer(
             if line.strip()
         ]
 
-        if lines:
+        invalid_names = {
+            "resume",
+            "curriculum vitae",
+            "cv",
+            "summary",
+            "profile",
+            "contact",
+            "education",
+            "skills",
+            "experience",
+            "projects"
+        }
 
-            first_line = lines[0]
+        for line in lines[:10]:
 
-            # Avoid returning generic section headings
-            invalid_names = {
-                "resume",
-                "curriculum vitae",
-                "cv",
-                "summary",
-                "profile",
-                "contact"
-            }
+            if line.casefold() not in invalid_names:
 
-            if first_line.lower() not in invalid_names:
+                if len(line.split()) <= 5:
 
-                return first_line
+                    return line
 
-
-        # ---------------------------------------------
-        # Common name pattern
-        # ---------------------------------------------
-
-        name_match = re.search(
-            r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b",
-            pdf_content
-        )
-
-        if name_match:
-
-            return name_match.group(1)
-
+    # =================================================
+    # NO DIRECT FACT FOUND
+    # =================================================
 
     return ""
 
@@ -1149,11 +1322,12 @@ def is_relevant_to_pdf(
     min_score=SEMANTIC_MIN_SCORE
 ):
     """
-    Dynamically decide whether the user's question
+    Dynamically determine whether the user's question
     is related to the uploaded PDF.
 
-    Uses semantic search instead of static
-    keyword/question lists.
+    Returns:
+        (True, relevant_text)
+        (False, "")
     """
 
     # =================================================
@@ -1161,12 +1335,12 @@ def is_relevant_to_pdf(
     # =================================================
 
     if not question:
-        return False
+        return False, ""
 
     question = question.strip()
 
     if not question:
-        return False
+        return False, ""
 
     # =================================================
     # 2. VALIDATE SEMANTIC INDEX
@@ -1183,7 +1357,7 @@ def is_relevant_to_pdf(
                 "(Semantic Index Unavailable)"
             )
 
-        return False
+        return False, ""
 
     # =================================================
     # 3. SEMANTIC SEARCH
@@ -1207,10 +1381,10 @@ def is_relevant_to_pdf(
                 e
             )
 
-        return False
+        return False, ""
 
     # =================================================
-    # 4. NO RELEVANT PDF CONTEXT
+    # 4. NO RELEVANT CONTEXT
     # =================================================
 
     if not relevant_text:
@@ -1221,105 +1395,68 @@ def is_relevant_to_pdf(
                 "(No Relevant PDF Context)"
             )
 
-        return False
+        return False, ""
 
     # =================================================
-    # 5. CALCULATE WORD OVERLAP
+    # 5. BASIC CONTEXT VALIDATION
     # =================================================
 
-    question_words = {
-        word
-        for word in re.findall(
-            r"\w+",
-            question.casefold()
-        )
-        if len(word) > 2
-    }
+    cleaned_context = relevant_text.strip()
 
-    context_words = {
-        word
-        for word in re.findall(
-            r"\w+",
-            relevant_text.casefold()
-        )
-        if len(word) > 2
-    }
-
-    # =================================================
-    # 6. HANDLE NATURAL-LANGUAGE QUESTIONS
-    # =================================================
-
-    if not question_words:
+    if len(cleaned_context) < 50:
 
         if DEBUG:
             print(
                 "PDF Related: False "
-                "(No Question Words)"
+                "(PDF Context Too Short)"
             )
 
-        return False
+        return False, ""
 
-    overlap = len(
-        question_words & context_words
-    )
-
-    overlap_ratio = (
-        overlap
-        / len(question_words)
-    )
+    # =================================================
+    # 6. OPTIONAL DEBUG INFORMATION
+    # =================================================
 
     if DEBUG:
+
+        question_words = set(
+            re.findall(
+                r"\w+",
+                question.casefold()
+            )
+        )
+
+        context_words = set(
+            re.findall(
+                r"\w+",
+                cleaned_context.casefold()
+            )
+        )
+
+        overlap = len(
+            question_words & context_words
+        )
+
+        overlap_ratio = (
+            overlap /
+            max(len(question_words), 1)
+        )
+
         print(
             f"PDF Semantic Overlap: "
             f"{overlap_ratio:.2f}"
         )
 
-    # =================================================
-    # 7. STRONG SEMANTIC MATCH
-    # =================================================
-
-    if overlap_ratio >= 0.30:
-
-        if DEBUG:
-            print(
-                "PDF Related: True "
-                "(Strong Semantic Match)"
-            )
-
-        return True, relevant_text
-
-    # =================================================
-    # 8. MODERATE SEMANTIC MATCH
-    # =================================================
-
-    # If the semantic search returned enough
-    # meaningful context and the overlap is not
-    # extremely weak, consider it PDF-related.
-
-    if (
-        len(relevant_text.strip()) >= 150
-        and overlap_ratio >= 0.15
-    ):
-
-        if DEBUG:
-            print(
-                "PDF Related: True "
-                "(Moderate Semantic Match)"
-            )
-
-        return True, relevant_text
-
-    # =================================================
-    # 9. WEAK MATCH
-    # =================================================
-
-    if DEBUG:
         print(
-            "PDF Related: False "
-            "(Weak Semantic Match)"
+            "PDF Related: True "
+            "(Semantic Search Match)"
         )
 
-    return False, ""
+    # =================================================
+    # 7. RETURN PDF CONTEXT
+    # =================================================
+
+    return True, cleaned_context
 
 # =====================================================
 # CHATBOT
