@@ -1251,6 +1251,7 @@ def find_direct_pdf_answer(
     if any(
         phrase in question_lower
         for phrase in [
+            "what is my name"
             "candidate name",
             "candidate's name",
             "person name",
@@ -1319,7 +1320,6 @@ def is_relevant_to_pdf(
     question,
     semantic_index,
     semantic_chunks,
-    min_score=SEMANTIC_MIN_SCORE
 ):
     """
     Dynamically determine whether the user's question
@@ -1369,8 +1369,8 @@ def is_relevant_to_pdf(
             index=semantic_index,
             chunks=semantic_chunks,
             query=question,
-            top_k=3,
-            min_score=min_score
+            top_k=SEMANTIC_TOP_K,
+            min_score=SEMANTIC_MIN_SCORE
         )
 
     except Exception as e:
@@ -1771,71 +1771,12 @@ def chatbot(
         return metadata_answer
 
     # =====================================================
-    # 9. RESUME SECTION SEARCH
+    # 9. DYNAMIC PDF SEARCH
     # =====================================================
 
-    section_answer = find_section_content(
-        message,
-        pdf_content
-    )
-
-    if section_answer:
-
-        section_answer = format_pdf_section_answer(
-            message,
-            section_answer
-        )
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + section_answer
-        )
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-
-        save_session(
-            message,
-            answer
-        )
-
-        return answer
-
-    # =====================================================
-    # 10. DIRECT PDF FACT SEARCH
-    # =====================================================
-
-    direct_answer = find_direct_pdf_answer(
-        question=message,
-        pdf_content=pdf_content,
-        pdf_files=pdf_files
-    )
-
-
-    if direct_answer:
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + direct_answer
-        )
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-        save_session(
-            message,
-            answer
-        )
-
-
-        return answer
-
-    # =====================================================
-    # 11. DYNAMIC PDF DETECTION + SEARCH
-    # =====================================================
+    # Semantic search is now the primary PDF retrieval method.
+    # Static section/direct searches are not allowed to return
+    # an answer before semantic retrieval.
 
     pdf_related, relevant_text = is_relevant_to_pdf(
         question=message,
@@ -1843,23 +1784,65 @@ def chatbot(
         semantic_chunks=semantic_chunks,
         min_score=SEMANTIC_MIN_SCORE
     )
+    
+    if DEBUG:
+        print("=" * 60)
+        print("SEMANTIC SEARCH DEBUG")
+        print("Question:", message)
+        print("PDF Related:", pdf_related)
+        print("Retrieved Context:")
+        print(relevant_text)
+        print("=" * 60)
 
     if DEBUG:
+        print("=" * 60)
+        print("DYNAMIC PDF SEARCH")
+        print(f"Question: {message}")
         print(f"PDF Related: {pdf_related}")
+
+        if relevant_text:
+            print(
+                f"Retrieved PDF Context Length: "
+                f"{len(relevant_text)}"
+            )
+
+        print("=" * 60)
 
 
     # =====================================================
-    # 12. PDF-RELATED QUESTION
+    # 10. PDF-RELATED QUESTION
     # =====================================================
 
     if pdf_related and relevant_text:
 
+        # -----------------------------------------------
+        # Limit context sent to Gemini
+        # -----------------------------------------------
+
+        pdf_context = relevant_text[
+            :MAX_PDF_CONTEXT
+        ].strip()
+
+        if DEBUG:
+            print(
+                "Sending retrieved PDF context "
+                "to Gemini."
+            )
+
+        # -----------------------------------------------
+        # Ask Gemini using ONLY retrieved PDF context
+        # -----------------------------------------------
+
         result = ask_gemini(
             message=message,
-            pdf_context=relevant_text[:MAX_PDF_CONTEXT],
+            pdf_context=pdf_context,
             conversation=conversation,
             pdf_fallback=False
         )
+
+        # =================================================
+        # GEMINI SUCCESS
+        # =================================================
 
         if result["success"]:
 
@@ -1880,12 +1863,67 @@ def chatbot(
 
             return answer
 
-        # Gemini failed → PDF fallback
+        # =================================================
+        # GEMINI QUOTA ERROR
+        # =================================================
+
+        if result["error_type"] == "quota":
+
+            # Do not send the question to unrestricted
+            # Gemini because this is a PDF-related query.
+
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + pdf_context_fallback(
+                    pdf_context
+                )
+            )
+
+            update_stats(
+                answer,
+                source="pdf"
+            )
+
+            save_session(
+                message,
+                answer
+            )
+
+            return answer
+
+        # =================================================
+        # GEMINI SERVER BUSY
+        # =================================================
+
+        if result["error_type"] == "busy":
+
+            answer = (
+                "📄 Source: Uploaded PDF\n\n"
+                + pdf_context_fallback(
+                    pdf_context
+                )
+            )
+
+            update_stats(
+                answer,
+                source="pdf"
+            )
+
+            save_session(
+                message,
+                answer
+            )
+
+            return answer
+
+        # =================================================
+        # OTHER GEMINI ERROR
+        # =================================================
 
         answer = (
             "📄 Source: Uploaded PDF\n\n"
             + pdf_context_fallback(
-                relevant_text[:MAX_PDF_CONTEXT]
+                pdf_context
             )
         )
 
@@ -1900,9 +1938,22 @@ def chatbot(
         )
 
         return answer
-    
+
+
     # =====================================================
-    # 13. GENERAL GEMINI QUESTION
+    # 11. PDF NOT RELEVANT
+    # =====================================================
+
+    if DEBUG:
+
+        print(
+            "No sufficiently relevant PDF "
+            "context found."
+        )
+
+
+    # =====================================================
+    # 12. GENERAL GEMINI QUESTION
     # =====================================================
 
     result = ask_gemini(
@@ -1912,8 +1963,9 @@ def chatbot(
         pdf_fallback=False
     )
 
+
     # =====================================================
-    # 14. GEMINI SUCCESS
+    # 13. GEMINI SUCCESS
     # =====================================================
 
     if result["success"]:
@@ -1935,8 +1987,9 @@ def chatbot(
 
         return answer
 
+
     # =====================================================
-    # 15. GEMINI QUOTA ERROR
+    # 14. GEMINI QUOTA ERROR
     # =====================================================
 
     if result["error_type"] == "quota":
@@ -1947,8 +2000,9 @@ def chatbot(
             "or use another Gemini API key."
         )
 
+
     # =====================================================
-    # 16. GEMINI SERVER BUSY
+    # 15. GEMINI SERVER BUSY
     # =====================================================
 
     if result["error_type"] == "busy":
@@ -1958,8 +2012,9 @@ def chatbot(
             "Please try again after a few seconds."
         )
 
+
     # =====================================================
-    # OTHER ERROR
+    # 16. OTHER ERROR
     # =====================================================
 
     return (

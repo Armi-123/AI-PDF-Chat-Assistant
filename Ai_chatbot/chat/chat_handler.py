@@ -1,7 +1,6 @@
 from chat.chatbot import chatbot
 
 from features.chat_statistics import (
-    update_stats,
     get_statistics
 )
 
@@ -137,21 +136,6 @@ def chat(message, history, pdf_files):
     print(
         "=" * 60
     )
-
-    # =================================================
-    # GET CURRENT STATISTICS
-    # =================================================
-
-    try:
-        statistics = get_statistics()
-
-    except Exception as e:
-        print(
-            "Get Statistics Error:",
-            e
-        )
-
-        statistics = ""
 
     # =================================================
     # RETURN TO GRADIO

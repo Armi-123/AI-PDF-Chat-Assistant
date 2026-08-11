@@ -135,7 +135,12 @@ def semantic_search(
         or index is None
         or not chunks
     ):
+        print("SEMANTIC SEARCH: Invalid input")
         return ""
+
+    # ------------------------------------------------------
+    # CREATE QUERY EMBEDDING
+    # ------------------------------------------------------
 
     query_vector = model.encode(
         [query],
@@ -147,26 +152,71 @@ def semantic_search(
         query_vector
     )
 
+    # ------------------------------------------------------
+    # SEARCH
+    # ------------------------------------------------------
+
+    search_k = min(
+        top_k,
+        len(chunks)
+    )
+
     scores, ids = index.search(
         query_vector,
-        min(
-            top_k,
-            len(chunks)
-        )
+        search_k
     )
+
+    # ------------------------------------------------------
+    # DEBUG
+    # ------------------------------------------------------
+
+    print("=" * 60)
+    print("SEMANTIC SEARCH DEBUG")
+    print(f"Question: {query}")
+    print(f"Total chunks: {len(chunks)}")
+    print(f"Top K: {search_k}")
+    print(f"Minimum score: {min_score}")
+    print("-" * 60)
 
     results = []
     seen = set()
 
-    for score, idx in zip(scores[0], ids[0]):
+    for rank, (score, idx) in enumerate(
+        zip(scores[0], ids[0]),
+        start=1
+    ):
 
         if idx == -1:
             continue
 
+        chunk = chunks[idx].strip()
+
+        print(
+            f"\nResult #{rank}"
+        )
+
+        print(
+            f"Score: {score:.4f}"
+        )
+
+        print(
+            f"Chunk ID: {idx}"
+        )
+
+        print(
+            f"Accepted: {score >= min_score}"
+        )
+
+        print(
+            f"Preview: {chunk[:250]}"
+        )
+
+        # --------------------------------------------------
+        # FILTER
+        # --------------------------------------------------
+
         if score < min_score:
             continue
-
-        chunk = chunks[idx].strip()
 
         if chunk in seen:
             continue
@@ -175,7 +225,38 @@ def semantic_search(
 
         results.append(chunk)
 
+    print("=" * 60)
+
+    # ------------------------------------------------------
+    # NO RESULT
+    # ------------------------------------------------------
+
     if not results:
+
+        print(
+            "SEMANTIC SEARCH RESULT: NO MATCH"
+        )
+
         return ""
 
-    return "\n\n".join(results).strip()
+    # ------------------------------------------------------
+    # FINAL RESULT
+    # ------------------------------------------------------
+
+    final_context = "\n\n".join(
+        results
+    ).strip()
+
+    print(
+        f"SEMANTIC SEARCH RESULT: "
+        f"{len(results)} chunks returned"
+    )
+
+    print(
+        f"Context length: "
+        f"{len(final_context)} characters"
+    )
+
+    print("=" * 60)
+
+    return final_context
