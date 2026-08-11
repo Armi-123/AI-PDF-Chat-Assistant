@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from google import genai
 import os
-from config.settings import MODEL_NAME
+from config.settings import MODEL_NAME,DEBUG
 from pdf.pdf_utils import extract_pdf_text
 
 load_dotenv()
@@ -151,7 +151,33 @@ Do not mention you are an AI.
 
     except Exception as e:
 
+        error = str(e).lower()
+
+        if (
+            "429" in error
+            or "quota" in error
+            or "resource_exhausted" in error
+        ):
+            return (
+                "⚠ Gemini API quota exceeded.\n\n"
+                "Please wait and try again later "
+                "or use another Gemini API key."
+            )
+
+        if (
+            "503" in error
+            or "unavailable" in error
+            or "overloaded" in error
+        ):
+            return (
+                "⚠ Gemini server is currently busy.\n\n"
+                "Please try again after a few seconds."
+            )
+
+        if DEBUG:
+            print("Resume Review Error:", e)
+
         return (
-            "⚠ Gemini Resume Review Failed.\n\n"
-            f"{e}"
+            "⚠ Unable to review the resume right now.\n\n"
+            "Please try again."
         )

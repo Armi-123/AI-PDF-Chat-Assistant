@@ -1149,222 +1149,45 @@ def is_relevant_to_pdf(
     min_score=SEMANTIC_MIN_SCORE
 ):
     """
-    Decide whether the user's question should be answered
-    from the uploaded PDF.
+    Dynamically decide whether the user's question
+    is related to the uploaded PDF.
 
-    PDF-specific questions are routed to the uploaded PDF.
-    General knowledge/career questions are routed to Gemini.
+    Uses semantic search instead of static
+    keyword/question lists.
     """
+
+    # =================================================
+    # 1. VALIDATE QUESTION
+    # =================================================
 
     if not question:
         return False
 
-    question_lower = question.lower().strip()
+    question = question.strip()
 
-    # =================================================
-    # 1. STRONG PDF / RESUME INTENT
-    # =================================================
-
-    pdf_intent_phrases = [
-        # Resume / CV
-        "my resume",
-        "my cv",
-        "this resume",
-        "this cv",
-        "uploaded resume",
-        "uploaded cv",
-        "resume file",
-        "cv file",
-
-        # PDF
-        "uploaded pdf",
-        "this pdf",
-        "the pdf",
-        "in the pdf",
-        "from the pdf",
-        "according to the pdf",
-        "mentioned in the pdf",
-        "listed in the pdf",
-        "shown in the pdf",
-
-        # Resume information
-        "resume skills",
-        "resume projects",
-        "resume experience",
-        "resume education",
-        "resume certification",
-        "resume certifications",
-        "resume summary",
-
-        # Candidate-specific
-        "candidate name",
-        "candidate's name",
-        "candidate skills",
-        "candidate experience",
-        "candidate projects",
-        "candidate education",
-        "candidate qualification",
-        "candidate certification",
-        "candidate certifications",
-
-        # Personal resume information
-        "my skills",
-        "my technical skills",
-        "my projects",
-        "my experience",
-        "my work experience",
-        "my internship",
-        "my internships",
-        "my education",
-        "my degree",
-        "my qualification",
-        "my certifications",
-        "my certification",
-        "my cgpa",
-        "my phone number",
-        "my email",
-        "my email address",
-        "my linkedin",
-        "my github",
-
-        # PDF-specific wording
-        "what is listed",
-        "what are listed",
-        "what is mentioned",
-        "what are mentioned",
-        "what does the resume say",
-        "what does my resume say",
-        "according to my resume"
-    ]
-
-    # =================================================
-    # 2. IMMEDIATE PDF DETECTION
-    # =================================================
-
-    if any(
-        phrase in question_lower
-        for phrase in pdf_intent_phrases
-    ):
-
-        if DEBUG:
-            print(
-                "PDF Related: True "
-                "(Resume/PDF Intent)"
-            )
-
-        return True
-
-    # =================================================
-    # 3. PERSONAL PRONOUN + RESUME TOPIC
-    # =================================================
-
-    personal_words = [
-        "my",
-        "mine",
-        "i",
-        "me"
-    ]
-
-    resume_topics = [
-        "skill",
-        "skills",
-        "project",
-        "projects",
-        "experience",
-        "internship",
-        "internships",
-        "education",
-        "degree",
-        "qualification",
-        "certification",
-        "certifications",
-        "profile",
-        "summary"
-    ]
-
-    has_personal_context = any(
-        re.search(
-            rf"\b{re.escape(word)}\b",
-            question_lower
-        )
-        for word in personal_words
-    )
-
-    has_resume_topic = any(
-        re.search(
-            rf"\b{re.escape(word)}\b",
-            question_lower
-        )
-        for word in resume_topics
-    )
-
-    if (
-        has_personal_context
-        and has_resume_topic
-    ):
-
-        if DEBUG:
-            print(
-                "PDF Related: True "
-                "(Personal Resume Question)"
-            )
-
-        return True
-
-    # =================================================
-    # 4. GENERAL QUESTIONS SHOULD NOT BE PDF QUESTIONS
-    # =================================================
-
-    general_question_phrases = [
-    "required skills",
-    "required skill",
-    "skills required",
-    "skill required",
-    "skills needed",
-    "skill needed",
-
-    "skills should i learn",
-    "skill should i learn",
-    "what skills should i learn",
-    "what skills should i know",
-    "what skills do i need",
-    "what skills are needed",
-    "what skills are required",
-
-    "how to become",
-    "career in",
-    "career skills",
-    "job skills",
-
-    "data analyst skills",
-    "data scientist skills",
-    "machine learning skills",
-    "python skills",
-    "sql skills"
-]
-
-    if any(
-        phrase in question_lower
-        for phrase in general_question_phrases
-    ):
-
-        if DEBUG:
-            print(
-                "PDF Related: False "
-                "(General Career/Knowledge Question)"
-            )
-
+    if not question:
         return False
 
     # =================================================
-    # 5. SEMANTIC SEARCH
+    # 2. VALIDATE SEMANTIC INDEX
     # =================================================
 
     if (
         semantic_index is None
         or not semantic_chunks
     ):
+
+        if DEBUG:
+            print(
+                "PDF Related: False "
+                "(Semantic Index Unavailable)"
+            )
+
         return False
+
+    # =================================================
+    # 3. SEMANTIC SEARCH
+    # =================================================
 
     try:
 
@@ -1372,88 +1195,132 @@ def is_relevant_to_pdf(
             index=semantic_index,
             chunks=semantic_chunks,
             query=question,
-            top_k=1,
+            top_k=3,
             min_score=min_score
         )
-
-        if not relevant_text:
-
-            if DEBUG:
-                print(
-                    "PDF Related: False "
-                    "(No Semantic Result)"
-                )
-
-            return False
-
-        # ---------------------------------------------
-        # Calculate word overlap
-        # ---------------------------------------------
-
-        query_words = {
-            word
-            for word in re.findall(
-                r"\w+",
-                question_lower
-            )
-            if len(word) > 2
-        }
-
-        context_words = set(
-            re.findall(
-                r"\w+",
-                relevant_text.lower()
-            )
-        )
-
-        overlap = len(
-            query_words & context_words
-        )
-
-        score = (
-            overlap
-            / max(len(query_words), 1)
-        )
-
-        if DEBUG:
-            print(
-                f"Semantic Overlap: {score:.2f}"
-            )
-
-        # ------------------------------------------------
-        # IMPORTANT:
-        # Semantic match alone should not aggressively
-        # classify a general question as a PDF question.
-        # ------------------------------------------------
-
-        if score >= 0.40:
-
-            if DEBUG:
-                print(
-                    "PDF Related: True "
-                    "(Strong Semantic Match)"
-                )
-
-            return True
-
-        if DEBUG:
-            print(
-                "PDF Related: False "
-                "(Weak Semantic Match)"
-            )
-
-        return False
 
     except Exception as e:
 
         if DEBUG:
             print(
-                "PDF relevance check failed:",
+                "PDF Semantic Search Error:",
                 e
             )
 
         return False
-    
+
+    # =================================================
+    # 4. NO RELEVANT PDF CONTEXT
+    # =================================================
+
+    if not relevant_text:
+
+        if DEBUG:
+            print(
+                "PDF Related: False "
+                "(No Relevant PDF Context)"
+            )
+
+        return False
+
+    # =================================================
+    # 5. CALCULATE WORD OVERLAP
+    # =================================================
+
+    question_words = {
+        word
+        for word in re.findall(
+            r"\w+",
+            question.casefold()
+        )
+        if len(word) > 2
+    }
+
+    context_words = {
+        word
+        for word in re.findall(
+            r"\w+",
+            relevant_text.casefold()
+        )
+        if len(word) > 2
+    }
+
+    # =================================================
+    # 6. HANDLE NATURAL-LANGUAGE QUESTIONS
+    # =================================================
+
+    if not question_words:
+
+        if DEBUG:
+            print(
+                "PDF Related: False "
+                "(No Question Words)"
+            )
+
+        return False
+
+    overlap = len(
+        question_words & context_words
+    )
+
+    overlap_ratio = (
+        overlap
+        / len(question_words)
+    )
+
+    if DEBUG:
+        print(
+            f"PDF Semantic Overlap: "
+            f"{overlap_ratio:.2f}"
+        )
+
+    # =================================================
+    # 7. STRONG SEMANTIC MATCH
+    # =================================================
+
+    if overlap_ratio >= 0.30:
+
+        if DEBUG:
+            print(
+                "PDF Related: True "
+                "(Strong Semantic Match)"
+            )
+
+        return True, relevant_text
+
+    # =================================================
+    # 8. MODERATE SEMANTIC MATCH
+    # =================================================
+
+    # If the semantic search returned enough
+    # meaningful context and the overlap is not
+    # extremely weak, consider it PDF-related.
+
+    if (
+        len(relevant_text.strip()) >= 150
+        and overlap_ratio >= 0.15
+    ):
+
+        if DEBUG:
+            print(
+                "PDF Related: True "
+                "(Moderate Semantic Match)"
+            )
+
+        return True, relevant_text
+
+    # =================================================
+    # 9. WEAK MATCH
+    # =================================================
+
+    if DEBUG:
+        print(
+            "PDF Related: False "
+            "(Weak Semantic Match)"
+        )
+
+    return False, ""
+
 # =====================================================
 # CHATBOT
 # =====================================================
@@ -1515,34 +1382,48 @@ def chatbot(
     question_lower = message.casefold().strip()
 
     resume_review_phrases = [
-        "review my resume",
-        "review my cv",
-        "analyze my resume",
-        "analyse my resume",
-        "analyze my cv",
-        "analyse my cv",
-        "resume review",
-        "resume feedback",
-        "resume score",
-        "cv score",
-        "ats score",
-        "ats review",
-        "ats analysis",
-        "improve my resume",
-        "improve my cv",
-        "resume suggestions",
-        "resume improvement",
-        "resume strengths",
-        "resume weaknesses",
-        "resume missing skills",
-        "resume missing keywords",
-        "resume job roles",
-        "compare my resume",
-        "compare my cv",
-        "is my resume interview ready",
-        "is my resume ats friendly",
-    ]
+    "review my resume",
+    "review my cv",
 
+    "analyze my resume",
+    "analyse my resume",
+    "analyze my cv",
+    "analyse my cv",
+
+    "resume review",
+    "resume feedback",
+
+    "resume score",
+    "cv score",
+    "ats score",
+    "ats review",
+    "ats analysis",
+
+    "improve my resume",
+    "improve my cv",
+    "resume suggestions",
+    "resume improvement",
+
+    "resume strengths",
+    "resume weaknesses",
+    "resume missing skills",
+    "resume missing keywords",
+
+    "resume job roles",
+    "compare my resume",
+    "compare my cv",
+
+    "is my resume interview ready",
+    "is my resume ats friendly",
+
+    # Natural variants
+    "how good is my resume",
+    "how strong is my resume",
+    "rate my resume",
+    "evaluate my resume",
+    "check my resume",
+    "check my cv",
+]
     is_resume_review_request = any(
         phrase in question_lower
         for phrase in resume_review_phrases
@@ -1597,7 +1478,7 @@ def chatbot(
         result = ask_gemini(
             message=message,
             pdf_context="",
-            conversation="",
+            conversation=conversation,
             pdf_fallback=False
         )
 
@@ -1686,11 +1567,8 @@ def chatbot(
             "summarise",
             "summary",
             "overview",
-            "summarize pdf",
-            "summarize this resume",
-            "brief summary",
             "give me an overview",
-            "overview of the pdf"
+            "brief summary",
         ]
     )
 
@@ -1818,11 +1696,11 @@ def chatbot(
 
         return answer
 
-    # ------------------------------------------------
-    # 11. DYNAMIC PDF DETECTION
-    # ------------------------------------------------
+    # =====================================================
+    # 11. DYNAMIC PDF DETECTION + SEARCH
+    # =====================================================
 
-    pdf_related = is_relevant_to_pdf(
+    pdf_related, relevant_text = is_relevant_to_pdf(
         question=message,
         semantic_index=semantic_index,
         semantic_chunks=semantic_chunks,
@@ -1834,90 +1712,28 @@ def chatbot(
 
 
     # =====================================================
-    # 12. PDF-RELATED QUESTION SEARCH
+    # 12. PDF-RELATED QUESTION
     # =====================================================
 
-    if pdf_related:
+    if pdf_related and relevant_text:
 
-        try:
+        result = ask_gemini(
+            message=message,
+            pdf_context=relevant_text[:MAX_PDF_CONTEXT],
+            conversation=conversation,
+            pdf_fallback=False
+        )
 
-            relevant_text = semantic_search(
-                query=message,
-                index=semantic_index,
-                chunks=semantic_chunks,
-                top_k=SEMANTIC_TOP_K,
-                min_score=SEMANTIC_MIN_SCORE
-            )
+        if result["success"]:
 
-        except Exception as e:
-
-            if DEBUG:
-                print("Semantic Search Error:", e)
-
-            relevant_text = ""
-
-        # ---------------------------------------------
-        # Validate semantic result
-        # ---------------------------------------------
-
-        if relevant_text:
-
-            question_words = set(re.findall(r"\w+", message.lower()))
-            context_words = set(re.findall(r"\w+", relevant_text.lower()))
-
-            overlap = len(question_words & context_words)
-
-            ratio = overlap / max(len(question_words), 1)
-
-            if DEBUG:
-                print(f"Overlap : {ratio:.2f}")
-
-            if ratio < 0.20:
-                relevant_text = ""
-
-        # ---------------------------------------------
-        # Ask Gemini using PDF Context
-        # ---------------------------------------------
-
-        if relevant_text:
-
-            result = ask_gemini(
-                message=message,
-                pdf_context=relevant_text[:MAX_PDF_CONTEXT],
-                conversation=conversation,
-                pdf_fallback=False
-            )
-
-            if result["success"]:
-
-                answer = (
-                    "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
-                    + result["answer"]
-                )
-
-                update_stats(
-                    answer,
-                    source="gemini"
-                )
-
-                save_session(
-                    message,
-                    answer
-                )
-
-                return answer
-
-            # Gemini failed -> return PDF context
             answer = (
-                "📄 Source: Uploaded PDF\n\n"
-                + pdf_context_fallback(
-                    relevant_text[:MAX_PDF_CONTEXT]
-                )
+                "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
+                + result["answer"]
             )
 
             update_stats(
                 answer,
-                source="pdf"
+                source="gemini"
             )
 
             save_session(
@@ -1926,7 +1742,28 @@ def chatbot(
             )
 
             return answer
-        
+
+        # Gemini failed → PDF fallback
+
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + pdf_context_fallback(
+                relevant_text[:MAX_PDF_CONTEXT]
+            )
+        )
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
+    
     # =====================================================
     # 13. GENERAL GEMINI QUESTION
     # =====================================================
