@@ -9,7 +9,7 @@ MODEL_NAME = "gemini-2.5-flash"
 # =====================================================
 
 SEMANTIC_TOP_K = 5
-SEMANTIC_MIN_SCORE = 0.20
+SEMANTIC_MIN_SCORE = 0.30
 
 # =====================================================
 # PDF SETTINGS

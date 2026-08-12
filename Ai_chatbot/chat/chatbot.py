@@ -1782,7 +1782,6 @@ def chatbot(
         question=message,
         semantic_index=semantic_index,
         semantic_chunks=semantic_chunks,
-        min_score=SEMANTIC_MIN_SCORE
     )
     
     if DEBUG:

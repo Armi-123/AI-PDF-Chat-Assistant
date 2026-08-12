@@ -130,17 +130,13 @@ def semantic_search(
     min_score=0.30
 ):
 
-    if (
-        not query
-        or index is None
-        or not chunks
-    ):
+    if not query or index is None or not chunks:
         print("SEMANTIC SEARCH: Invalid input")
         return ""
 
-    # ------------------------------------------------------
+    # --------------------------------------------------
     # CREATE QUERY EMBEDDING
-    # ------------------------------------------------------
+    # --------------------------------------------------
 
     query_vector = model.encode(
         [query],
@@ -148,27 +144,22 @@ def semantic_search(
         show_progress_bar=False
     ).astype("float32")
 
-    faiss.normalize_L2(
-        query_vector
-    )
+    faiss.normalize_L2(query_vector)
 
-    # ------------------------------------------------------
+    # --------------------------------------------------
     # SEARCH
-    # ------------------------------------------------------
+    # --------------------------------------------------
 
-    search_k = min(
-        top_k,
-        len(chunks)
-    )
+    search_k = min(top_k, len(chunks))
 
     scores, ids = index.search(
         query_vector,
         search_k
     )
 
-    # ------------------------------------------------------
+    # --------------------------------------------------
     # DEBUG
-    # ------------------------------------------------------
+    # --------------------------------------------------
 
     print("=" * 60)
     print("SEMANTIC SEARCH DEBUG")
@@ -181,6 +172,8 @@ def semantic_search(
     results = []
     seen = set()
 
+    best_score = 0.0
+
     for rank, (score, idx) in enumerate(
         zip(scores[0], ids[0]),
         start=1
@@ -191,24 +184,16 @@ def semantic_search(
 
         chunk = chunks[idx].strip()
 
-        print(
-            f"\nResult #{rank}"
-        )
+        print(f"\nResult #{rank}")
+        print(f"Score: {score:.4f}")
+        print(f"Chunk ID: {idx}")
+        print(f"Accepted: {score >= min_score}")
+        print(f"Preview: {chunk[:250]}")
 
-        print(
-            f"Score: {score:.4f}"
-        )
-
-        print(
-            f"Chunk ID: {idx}"
-        )
-
-        print(
-            f"Accepted: {score >= min_score}"
-        )
-
-        print(
-            f"Preview: {chunk[:250]}"
+        # Track best score
+        best_score = max(
+            best_score,
+            float(score)
         )
 
         # --------------------------------------------------
@@ -227,21 +212,20 @@ def semantic_search(
 
     print("=" * 60)
 
-    # ------------------------------------------------------
+    # --------------------------------------------------
     # NO RESULT
-    # ------------------------------------------------------
+    # --------------------------------------------------
 
     if not results:
 
-        print(
-            "SEMANTIC SEARCH RESULT: NO MATCH"
-        )
+        print("SEMANTIC SEARCH RESULT: NO MATCH")
+        print(f"Best similarity score: {best_score:.4f}")
 
         return ""
 
-    # ------------------------------------------------------
+    # --------------------------------------------------
     # FINAL RESULT
-    # ------------------------------------------------------
+    # --------------------------------------------------
 
     final_context = "\n\n".join(
         results
@@ -250,6 +234,11 @@ def semantic_search(
     print(
         f"SEMANTIC SEARCH RESULT: "
         f"{len(results)} chunks returned"
+    )
+
+    print(
+        f"Best similarity score: "
+        f"{best_score:.4f}"
     )
 
     print(
