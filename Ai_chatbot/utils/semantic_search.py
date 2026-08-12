@@ -127,7 +127,7 @@ def semantic_search(
     chunks,
     query,
     top_k=5,
-    min_score=0.30
+    min_score=0.45
 ):
 
     if not query or index is None or not chunks:

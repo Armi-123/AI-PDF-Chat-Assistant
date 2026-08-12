@@ -4,19 +4,6 @@ from features.chat_statistics import (
     get_statistics
 )
 
-import features.chat_statistics
-
-
-# =====================================================
-# DEBUG: SHOW CHAT STATISTICS FILE LOCATION
-# =====================================================
-
-print(
-    "Chat Statistics File:",
-    features.chat_statistics.__file__
-)
-
-
 # =====================================================
 # MAIN CHAT HANDLER
 # =====================================================
@@ -109,33 +96,17 @@ def chat(message, history, pdf_files):
     # DEBUG OUTPUT
     # =================================================
 
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
-    print(
-        "USER QUESTION:"
-    )
+    print("USER QUESTION:")
+    print(message)
 
-    print(
-        message
-    )
+    print("-" * 60)
 
-    print(
-        "-" * 60
-    )
+    print("ASSISTANT ANSWER:")
+    print(answer)
 
-    print(
-        "ASSISTANT ANSWER:"
-    )
-
-    print(
-        answer
-    )
-
-    print(
-        "=" * 60
-    )
+    print("=" * 60)
 
     # =================================================
     # RETURN TO GRADIO

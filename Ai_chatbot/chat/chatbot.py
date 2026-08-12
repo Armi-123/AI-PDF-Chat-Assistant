@@ -1,7 +1,6 @@
 import os
 import re
 import time
-
 from pypdf import PdfReader
 from config.gemini_config import client
 from config.settings import (
@@ -16,21 +15,15 @@ from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
     extract_pdf_text,
     extract_all_pdf_text,
-    extract_pdf_links,
     get_pdf_title,
-    get_linkedin_url,
-    get_github_url,
 )
 from utils.semantic_search import (
     semantic_search,
     build_index,
 )
-from pdf.pdf_utils import get_pdf_path
 from features.chat_statistics import update_stats
 from utils.conversation_memory import build_conversation
 from utils.chat_memory import save_session
-
-semantic_cache = {}
 
 # =====================================================
 # CLEAN SOURCE LABELS
@@ -56,301 +49,6 @@ def clean_source_labels(answer):
     return answer.strip()
 
 # =====================================================
-# SECTION-AWARE PDF SEARCH
-# =====================================================
-
-def find_section_content(question, pdf_content):
-    """
-    Extract an entire resume section from the uploaded PDF.
-
-    Supports common resume section names and heading variations.
-    """
-
-    if not question or not pdf_content:
-        return ""
-
-    question_lower = question.lower().strip()
-
-    # =================================================
-    # SECTION KEYWORDS
-    # =================================================
-
-    section_map = {
-
-        "skills": [
-            "skill",
-            "skills",
-            "technical",
-            "technical skills",
-            "technology",
-            "technologies",
-            "programming",
-            "programming language",
-            "programming languages",
-            "language",
-            "languages",
-        ],
-
-        "education": [
-            "education",
-            "degree",
-            "qualification",
-            "qualifications",
-            "academic",
-            "academic qualification",
-            "academic qualifications",
-            "university",
-            "college",
-            "institute",
-            "school",
-            "graduation",
-            "b.tech",
-            "m.tech",
-            "bachelor",
-            "master",
-        ],
-
-        "experience": [
-            "experience",
-            "work experience",
-            "professional experience",
-            "internship",
-            "internships",
-            "intern",
-            "employment",
-            "career",
-            "worked",
-            "job",
-        ],
-
-        "projects": [
-            "project",
-            "projects",
-            "academic project",
-            "academic projects",
-            "major project",
-            "major projects",
-            "personal project",
-            "personal projects",
-            "portfolio",
-        ],
-
-        "certifications": [
-            "certification",
-            "certifications",
-            "certificate",
-            "certificates",
-            "license",
-            "licenses",
-        ]
-    }
-
-    # =================================================
-    # FIND TARGET SECTION
-    # =================================================
-
-    target_section = None
-
-    for section, keywords in section_map.items():
-
-        for keyword in keywords:
-
-            if keyword in question_lower:
-
-                target_section = section
-                break
-
-        if target_section:
-            break
-
-    if target_section is None:
-        return ""
-
-    # =================================================
-    # PREPARE PDF LINES
-    # =================================================
-
-    lines = [
-        line.strip()
-        for line in pdf_content.splitlines()
-        if line.strip()
-    ]
-
-    if not lines:
-        return ""
-
-    # =================================================
-    # HELPER: CHECK WHETHER LINE IS SECTION HEADING
-    # =================================================
-
-    def is_section_heading(line, section_name=None):
-
-        lower = line.lower().strip()
-
-        # Remove common punctuation
-        cleaned = re.sub(
-            r"[:\-|]+$",
-            "",
-            lower
-        ).strip()
-
-        keywords = section_map.get(
-            section_name,
-            []
-        )
-
-        for keyword in keywords:
-
-            keyword_lower = keyword.lower().strip()
-
-            if cleaned == keyword_lower:
-                return True
-
-        return False
-
-    # =================================================
-    # FIND TARGET SECTION HEADING
-    # =================================================
-
-    start = None
-
-    target_keywords = section_map[target_section]
-
-    for i, line in enumerate(lines):
-
-        lower = line.lower().strip()
-
-        cleaned = re.sub(
-            r"[:\-|]+$",
-            "",
-            lower
-        ).strip()
-
-        for keyword in target_keywords:
-
-            keyword_lower = keyword.lower().strip()
-
-            if cleaned == keyword_lower:
-
-                start = i
-                break
-
-        if start is not None:
-            break
-
-    if start is None:
-        return ""
-
-    # =================================================
-    # COLLECT SECTION CONTENT
-    # =================================================
-
-    result = []
-
-    for i in range(start + 1, len(lines)):
-
-        current = lines[i].strip()
-
-        if not current:
-            continue
-
-        # ---------------------------------------------
-        # Stop when another resume section begins
-        # ---------------------------------------------
-
-        is_next_heading = False
-
-        for section in section_map:
-
-            if section == target_section:
-                continue
-
-            if is_section_heading(
-                current,
-                section
-            ):
-
-                is_next_heading = True
-                break
-
-        if is_next_heading:
-            break
-
-        result.append(current)
-
-    # =================================================
-    # RETURN CLEAN SECTION
-    # =================================================
-
-    return "\n".join(result).strip()
-
-
-# =====================================================
-# FORMAT PDF SECTION ANSWER
-# =====================================================
-
-def format_pdf_section_answer(
-    question,
-    section_text
-):
-    """
-    Format extracted resume section for chatbot output.
-    """
-
-    if not section_text:
-        return ""
-
-    # ---------------------------------------------
-    # Normalize bullet points
-    # ---------------------------------------------
-
-    section_text = section_text.replace(
-        "•",
-        "\n• "
-    )
-
-    # ---------------------------------------------
-    # Normalize escaped characters from PDF
-    # ---------------------------------------------
-
-    section_text = section_text.replace(
-        "\\:",
-        ":"
-    )
-
-    section_text = section_text.replace(
-        "\\-",
-        "-"
-    )
-
-    section_text = section_text.replace(
-        "\\/",
-        "/"
-    )
-
-    # ---------------------------------------------
-    # Remove excessive spaces
-    # ---------------------------------------------
-
-    section_text = re.sub(
-        r"[ \t]+",
-        " ",
-        section_text
-    )
-
-    # ---------------------------------------------
-    # Remove excessive new lines
-    # ---------------------------------------------
-
-    section_text = re.sub(
-        r"\n{2,}",
-        "\n",
-        section_text
-    )
-
-    return section_text.strip()
-
-# =====================================================
 # GEMINI REQUEST
 # =====================================================
 
@@ -358,8 +56,7 @@ def ask_gemini(
     message,
     pdf_context="",
     conversation="",
-    pdf_fallback=False
-):
+    ):
 
     # =================================================
     # PDF CONTEXT MODE
@@ -368,68 +65,34 @@ def ask_gemini(
     if pdf_context:
 
         prompt = f"""
-You are a PDF Question Answering Assistant.
+    ```
 
-You MUST answer ONLY from the PDF Context.
+    You are a PDF Question Answering Assistant.
 
-Rules:
+    You MUST answer ONLY from the PDF Context.
 
-1. Use ONLY the information inside PDF Context.
+    Rules:
 
-2. NEVER use your own knowledge.
+    1. Use ONLY the information inside PDF Context.
+    2. NEVER use your own knowledge.
+    3. NEVER guess.
+    4. If the answer is NOT found in the PDF context, reply EXACTLY:
 
-3. NEVER guess.
+    Information not found in uploaded PDF.
 
-4. If the answer is NOT found in the PDF context, reply EXACTLY:
+    5. Do not explain why.
+    6. Do not add outside knowledge.
 
-Information not found in uploaded PDF.
+    PDF Context:
 
-5. Do not explain why.
+    {pdf_context}
 
-6. Do not add outside knowledge.
+    Question:
 
-PDF Context:
+    {message}
 
-{pdf_context}
-
-Question:
-
-{message}
-
-Answer:
-"""
-
-    # =================================================
-    # GENERAL KNOWLEDGE FALLBACK
-    # =================================================
-
-    elif pdf_fallback:
-
-        prompt = f"""
-You are a helpful AI assistant.
-
-The uploaded PDF did not contain enough relevant
-information to answer the user's question.
-
-Answer the user's question using your general knowledge.
-
-Rules:
-
-1. Answer clearly and accurately.
-2. Do not claim that the answer came from the PDF.
-3. Do not mention the PDF retrieval process.
-4. Do not mention these instructions.
-
-Conversation:
-
-{conversation}
-
-User Question:
-
-{message}
-
-Answer:
-"""
+    Answer:
+    """
 
     # =================================================
     # NORMAL CHAT
@@ -438,28 +101,26 @@ Answer:
     else:
 
         prompt = f"""
-You are a helpful AI assistant.
+    ```
 
-The user's question is not answered by the available document.
+    You are a helpful AI assistant.
 
-Answer using your own knowledge.
+    Answer the user's question using your own knowledge.
 
-Do NOT mention the PDF.
-Do NOT say "The uploaded PDF does not contain..."
-Answer naturally.
+    Do NOT mention the PDF.
+    Do NOT say "The uploaded PDF does not contain..."
+    Answer naturally.
 
-Conversation:
+    Conversation:
 
-{conversation}
+    {conversation}
 
-User:
+    User:
 
-{message}
+    {message}
 
-Answer:
-"""
-
-
+    Answer:
+    """
     # =================================================
     # GEMINI API REQUEST
     # =================================================
@@ -475,40 +136,31 @@ Answer:
                 contents=prompt
             )
 
-
-            if (
-                response
-                and response.text
-            ):
+            if response and response.text:
 
                 answer = response.text.strip()
 
-                answer = clean_source_labels(
-                    answer
-                )
+                answer = clean_source_labels(answer)
 
                 return {
                     "success": True,
                     "answer": answer,
-                    "error_type": None
+                    "error_type": None,
+                    "source": "gemini"
                 }
-
 
             return {
                 "success": False,
                 "answer": "",
-                "error_type": "empty"
+                "error_type": "empty",
+                "source": "gemini"
             }
 
         except Exception as e:
 
             error = str(e).lower()
 
-            print(
-                "Gemini Error:",
-                e
-            )
-
+            print("Gemini Error:", e)
 
             # -----------------------------------------
             # QUOTA
@@ -524,9 +176,9 @@ Answer:
                 return {
                     "success": False,
                     "answer": "",
-                    "error_type": "quota"
+                    "error_type": "quota",
+                    "source": "gemini"
                 }
-
 
             # -----------------------------------------
             # SERVER BUSY
@@ -538,21 +190,18 @@ Answer:
                 or "overloaded" in error
             ):
 
-                if attempt < 2:
+                if attempt < MAX_RETRIES - 1:
 
-                    time.sleep(
-                        2
-                    )
+                    time.sleep(2)
 
                     continue
-
 
                 return {
                     "success": False,
                     "answer": "",
-                    "error_type": "busy"
+                    "error_type": "busy",
+                    "source": "gemini"
                 }
-
 
             # -----------------------------------------
             # OTHER ERROR
@@ -561,14 +210,15 @@ Answer:
             return {
                 "success": False,
                 "answer": "",
-                "error_type": "other"
+                "error_type": "other",
+                "source": "gemini"
             }
-
 
     return {
         "success": False,
         "answer": "",
-        "error_type": "busy"
+        "error_type": "busy",
+        "source": "gemini"
     }
 
 # =====================================================
@@ -907,410 +557,6 @@ def handle_pdf_metadata_query(
 
     return ""
 
-# =====================================================
-# DIRECT PDF FACT SEARCH
-# =====================================================
-
-def find_direct_pdf_answer(
-    question,
-    pdf_content,
-    pdf_files=None
-):
-    """
-    Dynamically search for direct facts from the uploaded PDF.
-
-    Returns:
-        str: Direct PDF answer if a reliable fact is found.
-        "" : If no direct fact is found.
-    """
-
-    if not question:
-        return ""
-
-    if not pdf_content:
-        return ""
-
-    question_lower = question.casefold().strip()
-
-    # =================================================
-    # EMAIL
-    # =================================================
-
-    if any(
-        phrase in question_lower
-        for phrase in [
-            "email",
-            "email address",
-            "email id",
-            "mail id"
-        ]
-    ):
-
-        # Try hyperlinks first
-        if pdf_files:
-
-            try:
-
-                for pdf_file in pdf_files:
-
-                    links = extract_pdf_links(
-                        pdf_file
-                    )
-
-                    for url in links.get("urls", []):
-
-                        url = str(url).strip()
-
-                        if url.casefold().startswith(
-                            "mailto:"
-                        ):
-
-                            email = url[
-                                len("mailto:"):
-                            ].strip()
-
-                            if email:
-                                return email
-
-            except Exception as e:
-
-                if DEBUG:
-                    print(
-                        "Email hyperlink extraction error:",
-                        e
-                    )
-
-        # Fallback to PDF text
-        emails = re.findall(
-            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-            pdf_content,
-            re.IGNORECASE
-        )
-
-        emails = list(
-            dict.fromkeys(emails)
-        )
-
-        if emails:
-            return "\n".join(emails)
-
-    # =================================================
-    # PHONE NUMBER
-    # =================================================
-
-    phone_queries = [
-        "phone",
-        "mobile",
-        "contact number",
-        "phone number",
-        "mobile number",
-        "contact details",
-        "candidate phone",
-        "candidate mobile",
-        "candidate contact",
-        "resume phone",
-        "resume contact"
-    ]
-
-    if any(
-        phrase in question_lower
-        for phrase in phone_queries
-    ):
-
-        phone_matches = re.findall(
-            r"(?:\+91[\s\-]*)?([6-9]\d{4}[\s\-]?\d{5}|[6-9]\d{9})",
-            pdf_content
-        )
-
-        formatted_numbers = []
-        seen = set()
-
-        for phone in phone_matches:
-
-            phone = re.sub(
-                r"[\s\-]",
-                "",
-                phone
-            )
-
-            if len(phone) != 10:
-                continue
-
-            if phone in seen:
-                continue
-
-            seen.add(phone)
-
-            formatted_numbers.append(
-                f"(+91) {phone[:5]} {phone[5:]}"
-            )
-
-        if formatted_numbers:
-            return "\n".join(
-                formatted_numbers
-            )
-
-    # =================================================
-    # LINKEDIN
-    # =================================================
-
-    if "linkedin" in question_lower:
-
-        if pdf_files:
-
-            try:
-
-                for pdf_file in pdf_files:
-
-                    linkedin = get_linkedin_url(
-                        pdf_file
-                    )
-
-                    if linkedin:
-                        return linkedin
-
-            except Exception as e:
-
-                if DEBUG:
-                    print(
-                        "LinkedIn extraction error:",
-                        e
-                    )
-
-        linkedin_match = re.search(
-            r"https?://(?:www\.)?linkedin\.com/[^\s<>\]]+",
-            pdf_content,
-            re.IGNORECASE
-        )
-
-        if linkedin_match:
-            return linkedin_match.group(0)
-
-        if "linkedin" in pdf_content.casefold():
-            return (
-                "LinkedIn profile is mentioned "
-                "in the uploaded PDF."
-            )
-
-    # =================================================
-    # GITHUB
-    # =================================================
-
-    if "github" in question_lower:
-
-        if pdf_files:
-
-            try:
-
-                for pdf_file in pdf_files:
-
-                    github = get_github_url(
-                        pdf_file
-                    )
-
-                    if github:
-                        return github
-
-            except Exception as e:
-
-                if DEBUG:
-                    print(
-                        "GitHub extraction error:",
-                        e
-                    )
-
-        github_match = re.search(
-            r"https?://(?:www\.)?github\.com/[^\s<>\]]+",
-            pdf_content,
-            re.IGNORECASE
-        )
-
-        if github_match:
-            return github_match.group(0)
-
-        if "github" in pdf_content.casefold():
-            return (
-                "GitHub profile is mentioned "
-                "in the uploaded PDF."
-            )
-
-    # =================================================
-    # CGPA
-    # =================================================
-
-    if (
-        "cgpa" in question_lower
-        or "gpa" in question_lower
-        or "grade point" in question_lower
-    ):
-
-        cgpa_patterns = [
-
-            r"\bCGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
-
-            r"\bGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
-
-            r"\b(?:CGPA|GPA)\s+of\s+(\d+(?:\.\d+)?)"
-
-        ]
-
-        for pattern in cgpa_patterns:
-
-            match = re.search(
-                pattern,
-                pdf_content,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                return (
-                    f"Your CGPA is "
-                    f"{match.group(1)}."
-                )
-
-    # =================================================
-    # EDUCATION / DEGREE
-    # =================================================
-
-    education_terms = [
-        "education",
-        "educational background",
-        "degree",
-        "qualification",
-        "academic background",
-        "what did i study",
-        "what degree do i have"
-    ]
-
-    if any(
-        term in question_lower
-        for term in education_terms
-    ):
-
-        education_section = re.search(
-            r"(?:Education|Academic Background)"
-            r"(.*?)(?=\n(?:Skills|Experience|Projects|Certifications|Achievements)\b|\Z)",
-            pdf_content,
-            re.IGNORECASE | re.DOTALL
-        )
-
-        if education_section:
-
-            text = education_section.group(1).strip()
-
-            if text:
-                return text
-
-        # Fallback around B.Tech
-        degree_match = re.search(
-            r".{0,150}"
-            r"(?:B\.?Tech|Bachelor(?:'s)?\s+of\s+Technology)"
-            r".{0,250}",
-            pdf_content,
-            re.IGNORECASE | re.DOTALL
-        )
-
-        if degree_match:
-            return degree_match.group(0).strip()
-
-    # =================================================
-    # GRADUATION YEAR
-    # =================================================
-
-    if any(
-        term in question_lower
-        for term in [
-            "graduation year",
-            "graduated",
-            "graduation",
-            "when did i graduate",
-            "when did i complete my degree",
-            "passing year"
-        ]
-    ):
-
-        year_match = re.search(
-            r"(?:2021|2022|2023|2024|2025|2026)"
-            r"\s*[-–]\s*"
-            r"(20\d{2})",
-            pdf_content
-        )
-
-        if year_match:
-
-            return (
-                f"You completed your degree in "
-                f"{year_match.group(1)}."
-            )
-
-    # =================================================
-    # CANDIDATE NAME
-    # =================================================
-
-    if any(
-        phrase in question_lower
-        for phrase in [
-            "what is my name"
-            "candidate name",
-            "candidate's name",
-            "person name",
-            "person's name",
-            "who is the candidate",
-            "what is the candidate name",
-            "what is the name",
-            "who is the person",
-            "who is this",
-            "whose resume",
-            "resume belongs to",
-            "applicant name"
-        ]
-    ):
-
-        title = get_pdf_title(
-            pdf_content
-        )
-
-        if (
-            title
-            and title != "Unknown PDF"
-            and not title.casefold().endswith(".pdf")
-        ):
-
-            return title
-
-        lines = [
-            line.strip()
-            for line in pdf_content.splitlines()
-            if line.strip()
-        ]
-
-        invalid_names = {
-            "resume",
-            "curriculum vitae",
-            "cv",
-            "summary",
-            "profile",
-            "contact",
-            "education",
-            "skills",
-            "experience",
-            "projects"
-        }
-
-        for line in lines[:10]:
-
-            if line.casefold() not in invalid_names:
-
-                if len(line.split()) <= 5:
-
-                    return line
-
-    # =================================================
-    # NO DIRECT FACT FOUND
-    # =================================================
-
-    return ""
 
 # =====================================================
 # CHECK WHETHER QUESTION IS RELATED TO PDF
@@ -1616,7 +862,6 @@ def chatbot(
             message=message,
             pdf_context="",
             conversation=conversation,
-            pdf_fallback=False
         )
 
 
@@ -1668,15 +913,9 @@ def chatbot(
     if not pdf_content:
         return "⚠ Unable to read the uploaded PDF."
 
-    cache_key = tuple(
-        get_pdf_path(f)
-        for f in pdf_files
+    semantic_index, semantic_chunks = build_index(
+        pdf_content
     )
-
-    if cache_key not in semantic_cache:
-        semantic_cache[cache_key] = build_index(pdf_content)
-
-    semantic_index, semantic_chunks = semantic_cache[cache_key]
     
     if DEBUG:
         print(f"📄 PDF Ready | Chunks: {len(semantic_chunks)}")
@@ -1723,7 +962,7 @@ def chatbot(
             
             update_stats(
                 answer,
-                source="pdf"
+                source="gemini"
             )
 
             save_session(
@@ -1786,24 +1025,17 @@ def chatbot(
     
     if DEBUG:
         print("=" * 60)
-        print("SEMANTIC SEARCH DEBUG")
+        print("PDF SEMANTIC SEARCH")
         print("Question:", message)
         print("PDF Related:", pdf_related)
-        print("Retrieved Context:")
-        print(relevant_text)
-        print("=" * 60)
-
-    if DEBUG:
-        print("=" * 60)
-        print("DYNAMIC PDF SEARCH")
-        print(f"Question: {message}")
-        print(f"PDF Related: {pdf_related}")
 
         if relevant_text:
             print(
                 f"Retrieved PDF Context Length: "
                 f"{len(relevant_text)}"
             )
+            print("Retrieved Context:")
+            print(relevant_text)
 
         print("=" * 60)
 
@@ -1836,7 +1068,6 @@ def chatbot(
             message=message,
             pdf_context=pdf_context,
             conversation=conversation,
-            pdf_fallback=False
         )
 
         # =================================================
@@ -1852,7 +1083,7 @@ def chatbot(
 
             update_stats(
                 answer,
-                source="gemini"
+                source="pdf_gemini"
             )
 
             save_session(
@@ -1866,7 +1097,7 @@ def chatbot(
         # GEMINI QUOTA ERROR
         # =================================================
 
-        if result["error_type"] == "quota":
+        if result["error_type"] == "busy":
 
             # Do not send the question to unrestricted
             # Gemini because this is a PDF-related query.
@@ -1959,7 +1190,6 @@ def chatbot(
         message=message,
         pdf_context="",
         conversation=conversation,
-        pdf_fallback=False
     )
 
 
