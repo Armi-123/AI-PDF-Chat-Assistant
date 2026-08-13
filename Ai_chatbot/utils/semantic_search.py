@@ -22,7 +22,7 @@ _cached_chunks = None
 
 def create_chunks(
     text,
-    chunk_size=450,
+    chunk_size=500,
     overlap=80
 ):
 
@@ -127,7 +127,7 @@ def semantic_search(
     chunks,
     query,
     top_k=5,
-    min_score=0.25
+    min_score=0.15
 ):
 
     if not query or index is None or not chunks:

@@ -10,6 +10,7 @@ from config.settings import (
     MAX_PDF_CONTEXT,
     DEBUG,
 )
+from pdf.pdf_search import answer_from_pdf
 from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
@@ -63,6 +64,27 @@ def ask_gemini(
     # =================================================
 
     if pdf_context:
+        # ---------------------------------------------
+        # SIMPLE PDF QUESTIONS → ANSWER LOCALLY
+        # ---------------------------------------------
+
+        local_answer = answer_from_pdf(
+            message,
+            pdf_context
+        )
+
+        if local_answer:
+
+            return {
+                "success": True,
+                "answer": local_answer,
+                "error_type": None,
+                "source": "pdf"
+            }
+
+        # ---------------------------------------------
+        # OTHERWISE → PREPARE GEMINI PROMPT
+        # ---------------------------------------------
 
         prompt = f"""
     ```

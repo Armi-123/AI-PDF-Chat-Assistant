@@ -1227,3 +1227,28 @@ def find_relevant_text(
     return "\n\n".join(
         result
     )[:6000]
+    
+    
+    
+def answer_from_pdf(question, context):
+    q = question.lower()
+
+    if "cgpa" in q:
+        match = re.search(
+            r"CGPA\s*[:|]?\s*([\d.]+)",
+            context,
+            re.IGNORECASE
+        )
+        if match:
+            return f"Your CGPA is {match.group(1)}."
+
+    if "education" in q or "degree" in q or "qualification" in q:
+        match = re.search(
+            r"(B\.Tech in Computer Engineering.*?CGPA\s*[:|]?\s*[\d.]+)",
+            context,
+            re.IGNORECASE
+        )
+        if match:
+            return f"Your education is {match.group(1).strip()}."
+
+    return None
