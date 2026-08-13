@@ -10,7 +10,10 @@ from config.settings import (
     MAX_PDF_CONTEXT,
     DEBUG,
 )
-from pdf.pdf_search import answer_from_pdf
+from pdf.pdf_search import (
+    answer_from_pdf,
+    find_relevant_text
+)
 from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
@@ -242,6 +245,42 @@ def ask_gemini(
         "error_type": "busy",
         "source": "gemini"
     }
+
+def answer_question(question, pdf_text):
+
+    # 1. Direct factual answer from full PDF
+    local_answer = answer_from_pdf(
+        question,
+        pdf_text
+    )
+
+    if local_answer:
+        return {
+            "success": True,
+            "answer": local_answer,
+            "error_type": None,
+            "source": "pdf"
+        }
+
+    # 2. Generic PDF retrieval
+    relevant_text = find_relevant_text(
+        pdf_text,
+        question
+    )
+
+    if not relevant_text:
+        return {
+            "success": True,
+            "answer": "Information not found in uploaded PDF.",
+            "error_type": None,
+            "source": "pdf"
+        }
+
+    # 3. Complex question → Gemini
+    return ask_gemini(
+        question,
+        pdf_context=relevant_text
+    )
 
 # =====================================================
 # PDF CONTEXT FALLBACK

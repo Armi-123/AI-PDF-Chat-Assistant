@@ -1,6 +1,5 @@
 import re
 from difflib import SequenceMatcher
-
 from pdf.pdf_utils import (
     extract_pdf_links,
     get_pdf_title,
@@ -1228,27 +1227,136 @@ def find_relevant_text(
         result
     )[:6000]
     
-    
-    
+# =====================================================
+# LOCAL PDF ANSWER
+# =====================================================
+
 def answer_from_pdf(question, context):
+
     q = question.lower()
 
+    # =================================================
+    # CGPA
+    # =================================================
+
     if "cgpa" in q:
+
         match = re.search(
             r"CGPA\s*[:|]?\s*([\d.]+)",
             context,
             re.IGNORECASE
         )
+
         if match:
             return f"Your CGPA is {match.group(1)}."
 
-    if "education" in q or "degree" in q or "qualification" in q:
+    # =================================================
+    # EDUCATION / DEGREE
+    # =================================================
+
+    if any(word in q for word in [
+        "education",
+        "degree",
+        "qualification"
+    ]):
+
         match = re.search(
-            r"(B\.Tech in Computer Engineering.*?CGPA\s*[:|]?\s*[\d.]+)",
+            r"(B\.Tech in Computer Engineering\s*\|\s*CGPA\s*[:|]?\s*[\d.]+)",
             context,
             re.IGNORECASE
         )
+
         if match:
             return f"Your education is {match.group(1).strip()}."
+
+    # =================================================
+    # SKILLS
+    # =================================================
+
+    if any(word in q for word in [
+        "skills",
+        "technologies",
+        "technical skills",
+        "tech skills"
+    ]):
+
+        match = re.search(
+            r"(Programming.*?Core Strengths:.*?Problem Solving)",
+            context,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if match:
+            return (
+                "Your technical skills include:\n\n"
+                + match.group(1).strip()
+            )
+
+    # =================================================
+    # EXPERIENCE / WORK
+    # =================================================
+
+    if any(word in q for word in [
+        "experience",
+        "worked",
+        "work",
+        "internship",
+        "internships",
+        "companies"
+    ]):
+
+        matches = re.findall(
+            r"(Data Science Trainee.*?Unlox Academy.*?|"
+            r"Python Developer Intern.*?InnoByte Services.*?|"
+            r"Python Web Developer Intern.*?Sutra Analytics Private Limited.*?)"
+            r"(?=\n|$)",
+            context,
+            re.IGNORECASE
+        )
+
+        if matches:
+            return (
+                "Your experience includes:\n\n"
+                + "\n".join(
+                    f"• {m.strip()}"
+                    for m in matches
+                )
+            )
+
+    # =================================================
+    # PROJECTS
+    # =================================================
+
+    if any(word in q for word in [
+        "projects",
+        "project",
+        "built",
+        "developed"
+    ]):
+
+        project_names = re.findall(
+            r"(Retail Sales Analytics Dashboard|"
+            r"Customer Churn Prediction|"
+            r"Customer Sentiment Analysis System)",
+            context,
+            re.IGNORECASE
+        )
+
+        if project_names:
+
+            unique_projects = []
+
+            for project in project_names:
+
+                if project not in unique_projects:
+                    unique_projects.append(project)
+
+            return (
+                "Your projects include:\n\n"
+                + "\n".join(
+                    f"• {project}"
+                    for project in unique_projects
+                )
+            )
 
     return None
