@@ -1236,6 +1236,76 @@ def answer_from_pdf(question, context):
     q = question.lower()
 
     # =================================================
+    # NAME
+    # =================================================
+
+    if any(word in q for word in [
+        "name",
+        "who am i",
+        "my name"
+    ]):
+
+        match = re.search(
+            r"^\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
+            context,
+            re.MULTILINE
+        )
+
+        if match:
+            return f"Your name is {match.group(1).strip()}."
+
+
+    # =================================================
+    # EMAIL
+    # =================================================
+
+    if any(word in q for word in [
+        "email",
+        "email address",
+        "mail"
+    ]):
+
+        match = re.search(
+            r"[\w.+-]+@[\w.-]+\.\w+",
+            context
+        )
+
+        if match:
+            return f"Your email is {match.group(0)}."
+
+
+    # =================================================
+    # LINKEDIN
+    # =================================================
+
+    if "linkedin" in q:
+
+        match = re.search(
+            r"https?://(?:www\.)?linkedin\.com/in/[^\s]+",
+            context,
+            re.IGNORECASE
+        )
+
+        if match:
+            return f"Your LinkedIn profile is:\n{match.group(0)}"
+
+
+    # =================================================
+    # GITHUB
+    # =================================================
+
+    if "github" in q:
+
+        match = re.search(
+            r"https?://(?:www\.)?github\.com/[^\s]+",
+            context,
+            re.IGNORECASE
+        )
+
+        if match:
+            return f"Your GitHub profile is:\n{match.group(0)}"
+        
+    # =================================================
     # CGPA
     # =================================================
 

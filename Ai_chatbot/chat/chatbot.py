@@ -1071,35 +1071,69 @@ def chatbot(
         return metadata_answer
 
     # =====================================================
-    # 9. DYNAMIC PDF SEARCH
+    # 9. LOCAL PDF ANSWER + DYNAMIC PDF SEARCH
     # =====================================================
 
-    # Semantic search is now the primary PDF retrieval method.
-    # Static section/direct searches are not allowed to return
-    # an answer before semantic retrieval.
+    # -----------------------------------------------------
+    # FIRST: Try direct factual answer from full PDF
+    # -----------------------------------------------------
+
+    local_result = answer_question(
+        question=message,
+        pdf_text=pdf_content
+    )
+
+    if local_result and local_result.get("success"):
+
+        answer = (
+            "📄 Source: Uploaded PDF\n\n"
+            + local_result["answer"]
+        )
+
+        update_stats(
+            answer,
+            source="pdf"
+        )
+
+        save_session(
+            message,
+            answer
+        )
+
+        return answer
+
+    # -----------------------------------------------------
+    # SECOND: Semantic PDF Search
+    # -----------------------------------------------------
 
     pdf_related, relevant_text = is_relevant_to_pdf(
         question=message,
         semantic_index=semantic_index,
         semantic_chunks=semantic_chunks,
     )
-    
+
     if DEBUG:
+
         print("=" * 60)
-        print("PDF SEMANTIC SEARCH")
+
+        print("PDF SEARCH")
+
         print("Question:", message)
+
         print("PDF Related:", pdf_related)
 
         if relevant_text:
+
             print(
                 f"Retrieved PDF Context Length: "
                 f"{len(relevant_text)}"
             )
+
             print("Retrieved Context:")
+
             print(relevant_text)
 
         print("=" * 60)
-
 
     # =====================================================
     # 10. PDF-RELATED QUESTION
@@ -1107,23 +1141,24 @@ def chatbot(
 
     if pdf_related and relevant_text:
 
-        # -----------------------------------------------
-        # Limit context sent to Gemini
-        # -----------------------------------------------
+        # -------------------------------------------------
+        # Limit PDF context
+        # -------------------------------------------------
 
         pdf_context = relevant_text[
             :MAX_PDF_CONTEXT
         ].strip()
 
         if DEBUG:
+
             print(
                 "Sending retrieved PDF context "
                 "to Gemini."
             )
 
-        # -----------------------------------------------
-        # Ask Gemini using ONLY retrieved PDF context
-        # -----------------------------------------------
+        # -------------------------------------------------
+        # Ask Gemini using ONLY PDF context
+        # -------------------------------------------------
 
         result = ask_gemini(
             message=message,
@@ -1158,10 +1193,7 @@ def chatbot(
         # GEMINI QUOTA ERROR
         # =================================================
 
-        if result["error_type"] == "busy":
-
-            # Do not send the question to unrestricted
-            # Gemini because this is a PDF-related query.
+        if result["error_type"] == "quota":
 
             answer = (
                 "📄 Source: Uploaded PDF\n\n"
@@ -1230,7 +1262,6 @@ def chatbot(
 
         return answer
 
-
     # =====================================================
     # 11. PDF NOT RELEVANT
     # =====================================================
@@ -1242,7 +1273,6 @@ def chatbot(
             "context found."
         )
 
-
     # =====================================================
     # 12. GENERAL GEMINI QUESTION
     # =====================================================
@@ -1252,7 +1282,6 @@ def chatbot(
         pdf_context="",
         conversation=conversation,
     )
-
 
     # =====================================================
     # 13. GEMINI SUCCESS
@@ -1277,7 +1306,6 @@ def chatbot(
 
         return answer
 
-
     # =====================================================
     # 14. GEMINI QUOTA ERROR
     # =====================================================
@@ -1290,7 +1318,6 @@ def chatbot(
             "or use another Gemini API key."
         )
 
-
     # =====================================================
     # 15. GEMINI SERVER BUSY
     # =====================================================
@@ -1301,7 +1328,6 @@ def chatbot(
             "⚠ Gemini server is currently busy.\n\n"
             "Please try again after a few seconds."
         )
-
 
     # =====================================================
     # 16. OTHER ERROR

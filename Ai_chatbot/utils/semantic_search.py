@@ -70,7 +70,6 @@ def keyword_score(question, chunk):
 
     return len(matched) / len(question_words)
 
-
 # ==========================================================
 # EXPAND QUERY
 # ==========================================================
@@ -197,13 +196,23 @@ def semantic_search(
     if not query or index is None or not chunks:
         print("SEMANTIC SEARCH: Invalid input")
         return ""
+    
+    # ======================================================
+    # EXPAND QUERY
+    # ======================================================
+
+    expanded_query = expand_query(query)
+
+    print("=" * 60)
+    print("ORIGINAL QUESTION:", query)
+    print("EXPANDED QUERY:", expanded_query)
 
     # --------------------------------------------------
     # CREATE QUERY EMBEDDING
     # --------------------------------------------------
 
     query_vector = model.encode(
-        [query],
+        [expanded_query],
         convert_to_numpy=True,
         show_progress_bar=False
     ).astype("float32")
