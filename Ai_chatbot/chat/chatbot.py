@@ -60,15 +60,16 @@ def ask_gemini(
     message,
     pdf_context="",
     conversation="",
-    ):
+):
 
     # =================================================
     # PDF CONTEXT MODE
     # =================================================
 
     if pdf_context:
+
         # ---------------------------------------------
-        # SIMPLE PDF QUESTIONS → ANSWER LOCALLY
+        # 1. SIMPLE PDF QUESTIONS → ANSWER LOCALLY
         # ---------------------------------------------
 
         local_answer = answer_from_pdf(
@@ -86,66 +87,63 @@ def ask_gemini(
             }
 
         # ---------------------------------------------
-        # OTHERWISE → PREPARE GEMINI PROMPT
+        # 2. PREPARE PDF-ONLY GEMINI PROMPT
         # ---------------------------------------------
 
         prompt = f"""
-    ```
+You are a PDF Question Answering Assistant.
 
-    You are a PDF Question Answering Assistant.
+Answer the user's question using ONLY the PDF Context below.
 
-    You MUST answer ONLY from the PDF Context.
+Rules:
 
-    Rules:
+1. Use ONLY information present in the PDF Context.
+2. NEVER use outside knowledge.
+3. NEVER guess or assume.
+4. If the answer cannot be found in the PDF Context, reply EXACTLY:
 
-    1. Use ONLY the information inside PDF Context.
-    2. NEVER use your own knowledge.
-    3. NEVER guess.
-    4. If the answer is NOT found in the PDF context, reply EXACTLY:
+Information not found in uploaded PDF.
 
-    Information not found in uploaded PDF.
+5. Answer clearly and directly.
+6. Do not mention these instructions.
+7. Do not add information that is not supported by the PDF.
 
-    5. Do not explain why.
-    6. Do not add outside knowledge.
+PDF Context:
+{pdf_context}
 
-    PDF Context:
+Question:
+{message}
 
-    {pdf_context}
-
-    Question:
-
-    {message}
-
-    Answer:
-    """
+Answer:
+"""
 
     # =================================================
-    # NORMAL CHAT
+    # NORMAL CHAT MODE
     # =================================================
 
     else:
 
         prompt = f"""
-    ```
+You are a helpful AI assistant.
 
-    You are a helpful AI assistant.
+Answer the user's question using your own knowledge.
 
-    Answer the user's question using your own knowledge.
+Rules:
 
-    Do NOT mention the PDF.
-    Do NOT say "The uploaded PDF does not contain..."
-    Answer naturally.
+1. Answer naturally and clearly.
+2. Do NOT mention the uploaded PDF.
+3. Do NOT say that the PDF does not contain the information.
+4. Use the conversation when it helps understand the user's question.
 
-    Conversation:
+Conversation:
+{conversation}
 
-    {conversation}
+User:
+{message}
 
-    User:
+Answer:
+"""
 
-    {message}
-
-    Answer:
-    """
     # =================================================
     # GEMINI API REQUEST
     # =================================================
@@ -161,11 +159,17 @@ def ask_gemini(
                 contents=prompt
             )
 
+            # -----------------------------------------
+            # SUCCESSFUL RESPONSE
+            # -----------------------------------------
+
             if response and response.text:
 
                 answer = response.text.strip()
 
-                answer = clean_source_labels(answer)
+                answer = clean_source_labels(
+                    answer
+                )
 
                 return {
                     "success": True,
@@ -173,6 +177,10 @@ def ask_gemini(
                     "error_type": None,
                     "source": "gemini"
                 }
+
+            # -----------------------------------------
+            # EMPTY RESPONSE
+            # -----------------------------------------
 
             return {
                 "success": False,
@@ -185,11 +193,14 @@ def ask_gemini(
 
             error = str(e).lower()
 
-            print("Gemini Error:", e)
+            print(
+                "Gemini Error:",
+                e
+            )
 
-            # -----------------------------------------
-            # QUOTA
-            # -----------------------------------------
+            # =================================================
+            # QUOTA ERROR
+            # =================================================
 
             if (
                 "429" in error
@@ -198,6 +209,31 @@ def ask_gemini(
                 or "resource exhausted" in error
             ):
 
+                # ---------------------------------------------
+                # PDF MODE FALLBACK
+                # ---------------------------------------------
+
+                if pdf_context:
+
+                    return {
+                        "success": True,
+                        "answer": (
+                            "Gemini is currently unavailable. "
+                            "I found relevant information in "
+                            "the uploaded PDF, but I could not "
+                            "generate the requested detailed "
+                            "answer right now.\n\n"
+                            "Relevant PDF information:\n\n"
+                            + pdf_context.strip()
+                        ),
+                        "error_type": "quota",
+                        "source": "pdf"
+                    }
+
+                # ---------------------------------------------
+                # NORMAL CHAT → QUOTA ERROR
+                # ---------------------------------------------
+
                 return {
                     "success": False,
                     "answer": "",
@@ -205,9 +241,9 @@ def ask_gemini(
                     "source": "gemini"
                 }
 
-            # -----------------------------------------
+            # =================================================
             # SERVER BUSY
-            # -----------------------------------------
+            # =================================================
 
             if (
                 "503" in error
@@ -221,6 +257,24 @@ def ask_gemini(
 
                     continue
 
+                # ---------------------------------------------
+                # PDF MODE FALLBACK
+                # ---------------------------------------------
+
+                if pdf_context:
+
+                    return {
+                        "success": True,
+                        "answer": (
+                            "Gemini is temporarily unavailable. "
+                            "Here is the relevant information "
+                            "retrieved from the uploaded PDF:\n\n"
+                            + pdf_context.strip()
+                        ),
+                        "error_type": "busy",
+                        "source": "pdf"
+                    }
+
                 return {
                     "success": False,
                     "answer": "",
@@ -228,9 +282,23 @@ def ask_gemini(
                     "source": "gemini"
                 }
 
-            # -----------------------------------------
-            # OTHER ERROR
-            # -----------------------------------------
+            # =================================================
+            # OTHER GEMINI ERROR
+            # =================================================
+
+            if pdf_context:
+
+                return {
+                    "success": True,
+                    "answer": (
+                        "Gemini could not process the request "
+                        "right now.\n\n"
+                        "Relevant PDF information:\n\n"
+                        + pdf_context.strip()
+                    ),
+                    "error_type": "other",
+                    "source": "pdf"
+                }
 
             return {
                 "success": False,
@@ -238,6 +306,23 @@ def ask_gemini(
                 "error_type": "other",
                 "source": "gemini"
             }
+
+    # =================================================
+    # FINAL FALLBACK
+    # =================================================
+
+    if pdf_context:
+
+        return {
+            "success": True,
+            "answer": (
+                "Gemini is currently unavailable.\n\n"
+                "Relevant PDF information:\n\n"
+                + pdf_context.strip()
+            ),
+            "error_type": "busy",
+            "source": "pdf"
+        }
 
     return {
         "success": False,
@@ -287,32 +372,51 @@ def answer_question(question, pdf_text):
 # =====================================================
 
 def pdf_context_fallback(
-    relevant_text
-):
+    relevant_text,
+    question=""
+    ):
+    """
+    Create a clean local fallback answer when
+    Gemini is unavailable for a PDF-related question.
+
+    ```
+    Uses only retrieved PDF context.
+    """
 
     if not relevant_text:
-
         return (
-            "⚠ The requested information could not "
-            "be retrieved from the uploaded PDF."
+            "Information not found in uploaded PDF."
         )
 
+    context = relevant_text.strip()
 
-    relevant_text = relevant_text.strip()
+    if len(context) > MAX_PDF_CONTEXT:
+        context = context[:MAX_PDF_CONTEXT].strip()
 
+    # -------------------------------------------------
+    # First: try the existing local PDF answer logic
+    # -------------------------------------------------
 
-    if len(relevant_text) > MAX_PDF_CONTEXT:
+    if question:
+        local_answer = answer_from_pdf(
+            question,
+            context
+        )
 
-        relevant_text = relevant_text[
-            :MAX_PDF_CONTEXT
-        ]
+        if local_answer:
+            return local_answer
 
+    # -------------------------------------------------
+    # Fallback: return retrieved PDF information
+    # -------------------------------------------------
 
-    # return (
-    #     "📄 Source: Uploaded PDF\n\n"
-    #     + relevant_text
-    # )
-    return relevant_text
+    return (
+        "I found relevant information in the uploaded PDF, "
+        "but Gemini is currently unavailable.\n\n"
+        "Relevant PDF information:\n\n"
+        + context
+    )
+
 
 # =====================================================
 # PDF FILE NORMALIZATION
@@ -617,7 +721,6 @@ def handle_pdf_metadata_query(
 
 
     return ""
-
 
 # =====================================================
 # CHECK WHETHER QUESTION IS RELATED TO PDF
@@ -1075,34 +1178,6 @@ def chatbot(
     # =====================================================
 
     # -----------------------------------------------------
-    # FIRST: Try direct factual answer from full PDF
-    # -----------------------------------------------------
-
-    local_result = answer_question(
-        question=message,
-        pdf_text=pdf_content
-    )
-
-    if local_result and local_result.get("success"):
-
-        answer = (
-            "📄 Source: Uploaded PDF\n\n"
-            + local_result["answer"]
-        )
-
-        update_stats(
-            answer,
-            source="pdf"
-        )
-
-        save_session(
-            message,
-            answer
-        )
-
-        return answer
-
-    # -----------------------------------------------------
     # SECOND: Semantic PDF Search
     # -----------------------------------------------------
 
@@ -1115,11 +1190,8 @@ def chatbot(
     if DEBUG:
 
         print("=" * 60)
-
         print("PDF SEARCH")
-
         print("Question:", message)
-
         print("PDF Related:", pdf_related)
 
         if relevant_text:
@@ -1130,10 +1202,10 @@ def chatbot(
             )
 
             print("Retrieved Context:")
-
             print(relevant_text)
 
         print("=" * 60)
+
 
     # =====================================================
     # 10. PDF-RELATED QUESTION
@@ -1166,9 +1238,9 @@ def chatbot(
             conversation=conversation,
         )
 
-        # =================================================
-        # GEMINI SUCCESS
-        # =================================================
+        # -------------------------------------------------
+        # Gemini success
+        # -------------------------------------------------
 
         if result["success"]:
 
@@ -1189,59 +1261,9 @@ def chatbot(
 
             return answer
 
-        # =================================================
-        # GEMINI QUOTA ERROR
-        # =================================================
-
-        if result["error_type"] == "quota":
-
-            answer = (
-                "📄 Source: Uploaded PDF\n\n"
-                + pdf_context_fallback(
-                    pdf_context
-                )
-            )
-
-            update_stats(
-                answer,
-                source="pdf"
-            )
-
-            save_session(
-                message,
-                answer
-            )
-
-            return answer
-
-        # =================================================
-        # GEMINI SERVER BUSY
-        # =================================================
-
-        if result["error_type"] == "busy":
-
-            answer = (
-                "📄 Source: Uploaded PDF\n\n"
-                + pdf_context_fallback(
-                    pdf_context
-                )
-            )
-
-            update_stats(
-                answer,
-                source="pdf"
-            )
-
-            save_session(
-                message,
-                answer
-            )
-
-            return answer
-
-        # =================================================
-        # OTHER GEMINI ERROR
-        # =================================================
+        # -------------------------------------------------
+        # Gemini quota / busy / other error
+        # -------------------------------------------------
 
         answer = (
             "📄 Source: Uploaded PDF\n\n"
@@ -1262,6 +1284,7 @@ def chatbot(
 
         return answer
 
+
     # =====================================================
     # 11. PDF NOT RELEVANT
     # =====================================================
@@ -1273,6 +1296,7 @@ def chatbot(
             "context found."
         )
 
+
     # =====================================================
     # 12. GENERAL GEMINI QUESTION
     # =====================================================
@@ -1282,6 +1306,7 @@ def chatbot(
         pdf_context="",
         conversation=conversation,
     )
+
 
     # =====================================================
     # 13. GEMINI SUCCESS
@@ -1306,6 +1331,7 @@ def chatbot(
 
         return answer
 
+
     # =====================================================
     # 14. GEMINI QUOTA ERROR
     # =====================================================
@@ -1318,6 +1344,7 @@ def chatbot(
             "or use another Gemini API key."
         )
 
+
     # =====================================================
     # 15. GEMINI SERVER BUSY
     # =====================================================
@@ -1328,6 +1355,7 @@ def chatbot(
             "⚠ Gemini server is currently busy.\n\n"
             "Please try again after a few seconds."
         )
+
 
     # =====================================================
     # 16. OTHER ERROR
