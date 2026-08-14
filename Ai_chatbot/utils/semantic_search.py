@@ -22,8 +22,8 @@ _cached_chunks = None
 
 def create_chunks(
     text,
-    chunk_size=500,
-    overlap=80
+    chunk_size=700,
+    overlap=150
 ):
 
     if not text:
@@ -39,22 +39,87 @@ def create_chunks(
 
     step = chunk_size - overlap
 
-    for start in range(
-        0,
-        len(text),
-        step
-    ):
-
-        chunk = text[
-            start:start + chunk_size
-        ].strip()
+    for start in range(0, len(text), step):
+        chunk = text[start:start + chunk_size].strip()
 
         if chunk:
-
             chunks.append(chunk)
 
     return chunks
 
+# ==========================================================
+# KEYWORD SCORE
+# ==========================================================
+
+def keyword_score(question, chunk):
+
+    question_words = set(
+        question.lower().split()
+    )
+
+    chunk_words = set(
+        chunk.lower().split()
+    )
+
+    if not question_words:
+        return 0
+
+    matched = question_words.intersection(
+        chunk_words
+    )
+
+    return len(matched) / len(question_words)
+
+
+# ==========================================================
+# EXPAND QUERY
+# ==========================================================
+
+def expand_query(question):
+
+    q = question.lower()
+
+    if "project" in q:
+        return (
+            question
+            + " projects project names dashboard "
+              "prediction sentiment"
+        )
+
+    if "cgpa" in q or "grade" in q:
+        return (
+            question
+            + " education degree academic CGPA"
+        )
+
+    if "education" in q or "degree" in q:
+        return (
+            question
+            + " education B.Tech Computer Engineering CGPA"
+        )
+
+    if (
+        "work" in q
+        or "worked" in q
+        or "experience" in q
+        or "internship" in q
+    ):
+        return (
+            question
+            + " experience internship company role"
+        )
+
+    if (
+        "skill" in q
+        or "technical" in q
+    ):
+        return (
+            question
+            + " technical skills Python SQL Power BI "
+              "Machine Learning NLP"
+        )
+
+    return question
 
 # ==========================================================
 # BUILD INDEX
@@ -117,7 +182,6 @@ def build_index(pdf_text):
         chunks
     )
 
-
 # ==========================================================
 # SEMANTIC SEARCH
 # ==========================================================
@@ -127,7 +191,7 @@ def semantic_search(
     chunks,
     query,
     top_k=5,
-    min_score=0.15
+    min_score=0.25
 ):
 
     if not query or index is None or not chunks:
