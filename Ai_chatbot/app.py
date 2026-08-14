@@ -1,10 +1,7 @@
 import gradio as gr
-
 from chat.chat_handler import chat
 from chat.chat_export import save_chat
-
 from pdf.pdf_summary import summarize_pdf
-
 from features.smart_suggestions import load_suggestions
 from features.chat_statistics import get_statistics
 from features.resume_review import review_resume
