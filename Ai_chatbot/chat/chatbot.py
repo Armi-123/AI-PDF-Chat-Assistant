@@ -68,16 +68,26 @@ def ask_gemini(
 
     if pdf_context:
 
-        # ---------------------------------------------
-        # 1. SIMPLE PDF QUESTIONS → ANSWER LOCALLY
-        # ---------------------------------------------
+    # ---------------------------------------------
+    # 1. SIMPLE PDF QUESTIONS → ANSWER LOCALLY
+    # ---------------------------------------------
+
+        print("==============================================")
+        print("PDF CONTEXT MODE")
+        print("QUESTION:", message)
+        print("PDF CONTEXT LENGTH:", len(pdf_context))
 
         local_answer = answer_from_pdf(
             message,
             pdf_context
         )
 
+        print("LOCAL ANSWER:", local_answer)
+
         if local_answer:
+
+            print("SOURCE: LOCAL PDF")
+            print("==============================================")
 
             return {
                 "success": True,
@@ -306,6 +316,8 @@ Answer:
                 "error_type": "other",
                 "source": "gemini"
             }
+            
+    
 
     # =================================================
     # FINAL FALLBACK
@@ -330,6 +342,8 @@ Answer:
         "error_type": "busy",
         "source": "gemini"
     }
+    
+    
 
 def answer_question(question, pdf_text):
 
