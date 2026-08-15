@@ -1304,7 +1304,8 @@ def answer_from_pdf(question, context):
 
         if match:
             return f"Your GitHub profile is:\n{match.group(0)}"
-        
+
+
     # =================================================
     # CGPA
     # =================================================
@@ -1319,6 +1320,7 @@ def answer_from_pdf(question, context):
 
         if match:
             return f"Your CGPA is {match.group(1)}."
+
 
     # =================================================
     # EDUCATION / DEGREE
@@ -1339,6 +1341,7 @@ def answer_from_pdf(question, context):
         if match:
             return f"Your education is {match.group(1).strip()}."
 
+
     # =================================================
     # SKILLS
     # =================================================
@@ -1350,17 +1353,29 @@ def answer_from_pdf(question, context):
         "tech skills"
     ]):
 
+        # Extract everything from Skills until Experience
         match = re.search(
-            r"(Programming.*?Core Strengths:.*?Problem Solving)",
+            r"Skills\s+(.*?)(?=\s+Experience\b)",
             context,
             re.IGNORECASE | re.DOTALL
         )
 
         if match:
+
+            skills_text = match.group(1).strip()
+
+            # Clean PDF extraction formatting
+            skills_text = re.sub(
+                r"\s+",
+                " ",
+                skills_text
+            )
+
             return (
                 "Your technical skills include:\n\n"
-                + match.group(1).strip()
+                + skills_text
             )
+
 
     # =================================================
     # EXPERIENCE / WORK
@@ -1375,23 +1390,28 @@ def answer_from_pdf(question, context):
         "companies"
     ]):
 
-        matches = re.findall(
-            r"(Data Science Trainee.*?Unlox Academy.*?|"
-            r"Python Developer Intern.*?InnoByte Services.*?|"
-            r"Python Web Developer Intern.*?Sutra Analytics Private Limited.*?)"
-            r"(?=\n|$)",
+        # Extract Experience section
+        match = re.search(
+            r"Experience\s+(.*?)(?=\s+Projects\b)",
             context,
-            re.IGNORECASE
+            re.IGNORECASE | re.DOTALL
         )
 
-        if matches:
+        if match:
+
+            experience_text = match.group(1).strip()
+
+            experience_text = re.sub(
+                r"\s+",
+                " ",
+                experience_text
+            )
+
             return (
                 "Your experience includes:\n\n"
-                + "\n".join(
-                    f"• {m.strip()}"
-                    for m in matches
-                )
+                + experience_text
             )
+
 
     # =================================================
     # PROJECTS
@@ -1404,10 +1424,11 @@ def answer_from_pdf(question, context):
         "developed"
     ]):
 
+        # Exact known project names
         project_names = re.findall(
-            r"(Retail Sales Analytics Dashboard|"
+            r"Retail Sales Analytics Dashboard|"
             r"Customer Churn Prediction|"
-            r"Customer Sentiment Analysis System)",
+            r"Customer Sentiment Analysis System",
             context,
             re.IGNORECASE
         )
@@ -1415,11 +1436,21 @@ def answer_from_pdf(question, context):
         if project_names:
 
             unique_projects = []
+            seen = set()
 
             for project in project_names:
 
-                if project not in unique_projects:
-                    unique_projects.append(project)
+                clean_project = project.strip()
+
+                key = clean_project.lower()
+
+                if key not in seen:
+
+                    seen.add(key)
+
+                    unique_projects.append(
+                        clean_project
+                    )
 
             return (
                 "Your projects include:\n\n"
@@ -1428,5 +1459,10 @@ def answer_from_pdf(question, context):
                     for project in unique_projects
                 )
             )
+
+
+    # =================================================
+    # NO LOCAL ANSWER
+    # =================================================
 
     return None
