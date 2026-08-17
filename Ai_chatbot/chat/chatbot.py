@@ -1262,7 +1262,7 @@ def chatbot(
                 source_label = "📄 Source: Uploaded PDF"
                 stats_source = "pdf"
 
-            elif result["source"] == "pdf_gemini":
+            elif result["source"] == "gemini":
 
                 source_label = (
                     "🤖 Source: Gemini AI + 📄 Uploaded PDF"
@@ -1299,7 +1299,8 @@ def chatbot(
         answer = (
             "📄 Source: Uploaded PDF\n\n"
             + pdf_context_fallback(
-                pdf_context
+                pdf_context,
+                question=message
             )
         )
 
