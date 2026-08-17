@@ -23,7 +23,6 @@ def similarity(a, b):
         b.lower()
     ).ratio()
 
-
 # =====================================================
 # NORMALIZE TEXT
 # =====================================================
@@ -54,7 +53,6 @@ def normalize_pdf_text(text):
     )
 
     return text.strip()
-
 
 # =====================================================
 # NORMALIZE QUESTION
@@ -87,7 +85,6 @@ def normalize_question(question):
         )
 
     return question
-
 
 # =====================================================
 # STOP WORDS
@@ -140,93 +137,6 @@ STOP_WORDS = {
     "listed",
 }
 
-
-# =====================================================
-# DIRECT QUESTION TYPE
-# =====================================================
-
-def detect_direct_query(question):
-    """
-    Detect important direct PDF questions.
-
-    Returns:
-    - email
-    - phone
-    - linkedin
-    - github
-    - certifications
-    - name
-    - None
-    """
-
-    q = normalize_question(
-        question
-    )
-
-    # Email
-    if any(
-        phrase in q
-        for phrase in [
-            "email",
-            "email address",
-            "email id",
-            "mail id",
-            "mail address",
-        ]
-    ):
-        return "email"
-
-    # Phone
-    if any(
-        phrase in q
-        for phrase in [
-            "phone number",
-            "mobile number",
-            "contact number",
-            "contact no",
-            "telephone",
-        ]
-    ):
-        return "phone"
-
-    # LinkedIn
-    if "linkedin" in q:
-        return "linkedin"
-
-    # GitHub
-    if (
-        "github" in q
-        or "git hub" in q
-    ):
-        return "github"
-
-    # Certifications
-    if any(
-        phrase in q
-        for phrase in [
-            "certification",
-            "certifications",
-            "certificate",
-            "certificates",
-        ]
-    ):
-        return "certifications"
-
-    # Name
-    if (
-        "candidate name" in q
-        or "candidate's name" in q
-        or "person name" in q
-        or "person's name" in q
-        or "what is the name" in q
-        or "who is the candidate" in q
-        or "who is the person" in q
-    ):
-        return "name"
-
-    return None
-
-
 # =====================================================
 # EMAIL SEARCH
 # =====================================================
@@ -265,7 +175,6 @@ def find_email(pdf_text):
     return "\n".join(
         unique
     )
-
 
 # =====================================================
 # PHONE SEARCH
@@ -334,7 +243,6 @@ def find_phone(pdf_text):
     return "\n".join(
         found
     )
-
 
 # =====================================================
 # LINK SEARCH
@@ -432,7 +340,6 @@ def find_social_links(
 
     return result
 
-
 # =====================================================
 # NAME SEARCH
 # =====================================================
@@ -509,7 +416,6 @@ def find_candidate_name(pdf_text):
                 return line
 
     return ""
-
 
 # =====================================================
 # CERTIFICATION SEARCH
@@ -623,7 +529,6 @@ def find_certifications(pdf_text):
         result
     )
 
-
 # =====================================================
 # DIRECT PDF SEARCH
 # =====================================================
@@ -690,13 +595,18 @@ def find_direct_pdf_answer(
     ]):
 
         phones = re.findall(
-            r"(?:\(\+91\)|\+91)?[\s-]*[6-9]\d{4}[\s-]?\d{5}",
+            r"(?:\(\+91\)|\+91)?[\s-]*([6-9]\d{4})[\s-]?(\d{5})",
             pdf_content
         )
 
         if phones:
-            return "\n".join(f"(+91) {a} {b}"for a, b in phones)
+            return "\n".join(
+                f"(+91) {a} {b}"
+                for a, b in phones
+            )
 
+        return "Phone number not found in the uploaded PDF."
+            
     # =================================================
     # LINKEDIN
     # =================================================
@@ -886,6 +796,21 @@ def find_direct_pdf_answer(
 
         if education_section:
             return education_section.group(1).strip()
+        
+    # =================================================
+    # CGPA
+    # =================================================
+
+    if "cgpa" in question_lower:
+
+        match = re.search(
+            r"CGPA\s*[:|]?\s*([\d.]+)",
+            pdf_content,
+            re.IGNORECASE
+        )
+
+        if match:
+            return f"Your CGPA is {match.group(1)}."
 
     # =================================================
     # INTERNSHIPS / EXPERIENCE
@@ -1227,242 +1152,3 @@ def find_relevant_text(
         result
     )[:6000]
     
-# =====================================================
-# LOCAL PDF ANSWER
-# =====================================================
-
-def answer_from_pdf(question, context):
-
-    q = question.lower()
-
-    # =================================================
-    # NAME
-    # =================================================
-
-    if any(word in q for word in [
-        "name",
-        "who am i",
-        "my name"
-    ]):
-
-        match = re.search(
-            r"^\s*([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)+)",
-            context,
-            re.MULTILINE
-        )
-
-        if match:
-            return f"Your name is {match.group(1).strip()}."
-
-
-    # =================================================
-    # EMAIL
-    # =================================================
-
-    if any(word in q for word in [
-        "email",
-        "email address",
-        "mail"
-    ]):
-
-        match = re.search(
-            r"[\w.+-]+@[\w.-]+\.\w+",
-            context
-        )
-
-        if match:
-            return f"Your email is {match.group(0)}."
-
-
-    # =================================================
-    # LINKEDIN
-    # =================================================
-
-    if "linkedin" in q:
-
-        match = re.search(
-            r"https?://(?:www\.)?linkedin\.com/in/[^\s]+",
-            context,
-            re.IGNORECASE
-        )
-
-        if match:
-            return f"Your LinkedIn profile is:\n{match.group(0)}"
-
-
-    # =================================================
-    # GITHUB
-    # =================================================
-
-    if "github" in q:
-
-        match = re.search(
-            r"https?://(?:www\.)?github\.com/[^\s]+",
-            context,
-            re.IGNORECASE
-        )
-
-        if match:
-            return f"Your GitHub profile is:\n{match.group(0)}"
-
-
-    # =================================================
-    # CGPA
-    # =================================================
-
-    if "cgpa" in q:
-
-        match = re.search(
-            r"CGPA\s*[:|]?\s*([\d.]+)",
-            context,
-            re.IGNORECASE
-        )
-
-        if match:
-            return f"Your CGPA is {match.group(1)}."
-
-
-    # =================================================
-    # EDUCATION / DEGREE
-    # =================================================
-
-    if any(word in q for word in [
-        "education",
-        "degree",
-        "qualification"
-    ]):
-
-        match = re.search(
-            r"(B\.Tech in Computer Engineering\s*\|\s*CGPA\s*[:|]?\s*[\d.]+)",
-            context,
-            re.IGNORECASE
-        )
-
-        if match:
-            return f"Your education is {match.group(1).strip()}."
-
-
-    # =================================================
-    # SKILLS
-    # =================================================
-
-    if any(word in q for word in [
-        "skills",
-        "technologies",
-        "technical skills",
-        "tech skills"
-    ]):
-
-        # Extract everything from Skills until Experience
-        match = re.search(
-            r"Skills\s+(.*?)(?=\s+Experience\b)",
-            context,
-            re.IGNORECASE | re.DOTALL
-        )
-
-        if match:
-
-            skills_text = match.group(1).strip()
-
-            # Clean PDF extraction formatting
-            skills_text = re.sub(
-                r"\s+",
-                " ",
-                skills_text
-            )
-
-            return (
-                "Your technical skills include:\n\n"
-                + skills_text
-            )
-
-
-    # =================================================
-    # EXPERIENCE / WORK
-    # =================================================
-
-    if any(word in q for word in [
-        "experience",
-        "worked",
-        "work",
-        "internship",
-        "internships",
-        "companies"
-    ]):
-
-        # Extract Experience section
-        match = re.search(
-            r"Experience\s+(.*?)(?=\s+Projects\b)",
-            context,
-            re.IGNORECASE | re.DOTALL
-        )
-
-        if match:
-
-            experience_text = match.group(1).strip()
-
-            experience_text = re.sub(
-                r"\s+",
-                " ",
-                experience_text
-            )
-
-            return (
-                "Your experience includes:\n\n"
-                + experience_text
-            )
-
-
-    # =================================================
-    # PROJECTS
-    # =================================================
-
-    if any(word in q for word in [
-        "projects",
-        "project",
-        "built",
-        "developed"
-    ]):
-
-        # Exact known project names
-        project_names = re.findall(
-            r"Retail Sales Analytics Dashboard|"
-            r"Customer Churn Prediction|"
-            r"Customer Sentiment Analysis System",
-            context,
-            re.IGNORECASE
-        )
-
-        if project_names:
-
-            unique_projects = []
-            seen = set()
-
-            for project in project_names:
-
-                clean_project = project.strip()
-
-                key = clean_project.lower()
-
-                if key not in seen:
-
-                    seen.add(key)
-
-                    unique_projects.append(
-                        clean_project
-                    )
-
-            return (
-                "Your projects include:\n\n"
-                + "\n".join(
-                    f"• {project}"
-                    for project in unique_projects
-                )
-            )
-
-
-    # =================================================
-    # NO LOCAL ANSWER
-    # =================================================
-
-    return None

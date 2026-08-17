@@ -11,14 +11,13 @@ from config.settings import (
     DEBUG,
 )
 from pdf.pdf_search import (
-    answer_from_pdf,
+    find_direct_pdf_answer,
     find_relevant_text
 )
 from features.resume_review import review_resume
 from pdf.pdf_summary import summarize_pdf
 from pdf.pdf_utils import (
     extract_pdf_text,
-    extract_all_pdf_text,
     get_pdf_title,
 )
 from utils.semantic_search import (
@@ -60,6 +59,7 @@ def ask_gemini(
     message,
     pdf_context="",
     conversation="",
+    full_pdf_text="",
 ):
 
     # =================================================
@@ -77,9 +77,9 @@ def ask_gemini(
         print("QUESTION:", message)
         print("PDF CONTEXT LENGTH:", len(pdf_context))
 
-        local_answer = answer_from_pdf(
+        local_answer = find_direct_pdf_answer(
             message,
-            pdf_context
+            full_pdf_text
         )
 
         print("LOCAL ANSWER:", local_answer)
@@ -344,11 +344,10 @@ Answer:
     }
     
     
-
 def answer_question(question, pdf_text):
 
     # 1. Direct factual answer from full PDF
-    local_answer = answer_from_pdf(
+    local_answer = find_direct_pdf_answer(
         question,
         pdf_text
     )
@@ -378,7 +377,8 @@ def answer_question(question, pdf_text):
     # 3. Complex question → Gemini
     return ask_gemini(
         question,
-        pdf_context=relevant_text
+        pdf_context=relevant_text,
+        full_pdf_text=pdf_text
     )
 
 # =====================================================
@@ -412,7 +412,7 @@ def pdf_context_fallback(
     # -------------------------------------------------
 
     if question:
-        local_answer = answer_from_pdf(
+        local_answer = find_direct_pdf_answer(
             question,
             context
         )
@@ -430,7 +430,6 @@ def pdf_context_fallback(
         "Relevant PDF information:\n\n"
         + context
     )
-
 
 # =====================================================
 # PDF FILE NORMALIZATION
@@ -1250,6 +1249,7 @@ def chatbot(
             message=message,
             pdf_context=pdf_context,
             conversation=conversation,
+            full_pdf_text=pdf_content,
         )
 
         # -------------------------------------------------
