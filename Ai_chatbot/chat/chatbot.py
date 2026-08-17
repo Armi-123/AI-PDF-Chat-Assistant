@@ -316,8 +316,6 @@ Answer:
                 "error_type": "other",
                 "source": "gemini"
             }
-            
-    
 
     # =================================================
     # FINAL FALLBACK
@@ -984,6 +982,7 @@ def chatbot(
     "check my resume",
     "check my cv",
 ]
+    
     is_resume_review_request = any(
         phrase in question_lower
         for phrase in resume_review_phrases
@@ -1258,14 +1257,32 @@ def chatbot(
 
         if result["success"]:
 
+            if result["source"] == "pdf":
+
+                source_label = "📄 Source: Uploaded PDF"
+                stats_source = "pdf"
+
+            elif result["source"] == "pdf_gemini":
+
+                source_label = (
+                    "🤖 Source: Gemini AI + 📄 Uploaded PDF"
+                )
+                stats_source = "pdf_gemini"
+
+            else:
+
+                source_label = "🤖 Source: Gemini AI"
+                stats_source = "gemini"
+
             answer = (
-                "🤖 Source: Gemini AI + 📄 Uploaded PDF\n\n"
+                source_label
+                + "\n\n"
                 + result["answer"]
             )
 
             update_stats(
                 answer,
-                source="pdf_gemini"
+                source=stats_source
             )
 
             save_session(

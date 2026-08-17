@@ -3,14 +3,14 @@ from google import genai
 import os
 from config.settings import MODEL_NAME,DEBUG
 from pdf.pdf_utils import extract_pdf_text
-
+from datetime import date
 load_dotenv()
 
 client = genai.Client(
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
-
+current_date = date.today().strftime("%d %B %Y")
 # =====================================================
 # AI RESUME REVIEW
 # =====================================================
@@ -63,8 +63,9 @@ Technical Recruiter and Career Coach.
 
 Analyze the following resume.
 
-Resume:
+Current date: {current_date}
 
+Resume:
 {pdf_text}
 
 Return ONLY markdown.
