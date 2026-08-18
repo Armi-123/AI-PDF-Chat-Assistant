@@ -961,6 +961,9 @@ def chatbot(
     "improve my cv",
     "resume suggestions",
     "resume improvement",
+    "review of resume",
+    "review of cv",
+    "cv review",
 
     "resume strengths",
     "resume weaknesses",

@@ -679,6 +679,8 @@ def find_direct_pdf_answer(
         "candidate name",
         "candidate's name",
         "person name",
+        "what is my name",
+        "my name",
         "person's name",
         "who is the candidate",
         "what is the candidate name",
@@ -777,7 +779,7 @@ def find_direct_pdf_answer(
 
         if project_section:
             return project_section.group(1).strip()
-
+        
     # =================================================
     # EDUCATION
     # =================================================
@@ -824,7 +826,7 @@ def find_direct_pdf_answer(
     ):
 
         experience_section = re.search(
-            r"Experience\s*(.*?)(?=\n(?:Projects|Education|Skills|Certifications|$))",
+            r"(?:^|\n)\s*Experience\s*(.*?)(?=\n\s*(?:Projects|Education|Skills|Certifications|Summary|$))",
             pdf_content,
             re.IGNORECASE | re.DOTALL
         )
