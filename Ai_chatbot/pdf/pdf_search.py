@@ -772,14 +772,20 @@ def find_direct_pdf_answer(
     ):
 
         project_section = re.search(
-            r"Projects\s*(.*?)(?=\n(?:Education|Experience|Skills|Certifications|Certifications & Awards|$))",
+            r"(?:^|\n)\s*Projects\s*(.*?)(?=\n\s*(?:Education|Experience|Skills|Certifications|Certifications & Awards|Summary|Contact|$))",
             pdf_content,
             re.IGNORECASE | re.DOTALL
         )
 
         if project_section:
-            return project_section.group(1).strip()
-        
+
+            result = project_section.group(1).strip()
+
+            if result:
+                return result
+
+        return "No projects are mentioned in the uploaded PDF."
+
     # =================================================
     # EDUCATION
     # =================================================
