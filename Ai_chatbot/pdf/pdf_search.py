@@ -1074,16 +1074,13 @@ def find_relevant_text(
     """
     Find relevant PDF chunks for general questions.
 
-    Used after direct factual searches.
+    Used only after direct factual PDF search.
+    Avoids returning weak/irrelevant resume chunks
+    for general knowledge questions.
     """
 
-    pdf_text = normalize_pdf_text(
-        pdf_text
-    )
-
-    question = normalize_question(
-        question
-    )
+    pdf_text = normalize_pdf_text(pdf_text)
+    question = normalize_question(question)
 
     if not pdf_text or not question:
         return ""
@@ -1094,19 +1091,14 @@ def find_relevant_text(
 
     chunks = []
 
-    paragraphs = pdf_text.split(
-        "\n\n"
-    )
+    paragraphs = pdf_text.split("\n\n")
 
     for para in paragraphs:
 
         para = para.strip()
 
         if len(para) > 40:
-
-            chunks.append(
-                para
-            )
+            chunks.append(para)
 
     # -------------------------------------------------
     # Fallback chunks
@@ -1131,16 +1123,11 @@ def find_relevant_text(
         ):
 
             chunk = "\n".join(
-                lines[
-                    i:i + chunk_size
-                ]
+                lines[i:i + chunk_size]
             )
 
             if chunk:
-
-                chunks.append(
-                    chunk
-                )
+                chunks.append(chunk)
 
     if not chunks:
         return ""
@@ -1153,16 +1140,95 @@ def find_relevant_text(
         word
         for word in re.findall(
             r"\w+",
-            question
+            question.lower()
         )
         if (
             word not in STOP_WORDS
-            and len(word) > 1
+            and len(word) > 2
         )
     ]
 
     if not question_words:
         return ""
+
+    # -------------------------------------------------
+    # Detect general-knowledge questions
+    # -------------------------------------------------
+
+    general_question_patterns = [
+        r"^what is\b",
+        r"^what are\b",
+        r"^who is\b",
+        r"^who was\b",
+        r"^explain\b",
+        r"^define\b",
+        r"^definition of\b",
+        r"^how does\b",
+        r"^how do\b",
+        r"^why does\b",
+        r"^why is\b",
+        r"^tell me about\b",
+        r"^meaning of\b"
+    ]
+
+    is_general_question = any(
+        re.search(
+            pattern,
+            question.lower()
+        )
+        for pattern in general_question_patterns
+    )
+
+    # -------------------------------------------------
+    # Strong PDF-specific indicators
+    # -------------------------------------------------
+
+    pdf_specific_terms = [
+        "my",
+        "mine",
+        "myself",
+        "resume",
+        "cv",
+        "candidate",
+        "profile",
+        "education",
+        "degree",
+        "cgpa",
+        "project",
+        "projects",
+        "internship",
+        "internships",
+        "experience",
+        "company",
+        "companies",
+        "certification",
+        "certifications",
+        "skill",
+        "skills",
+        "email",
+        "phone",
+        "mobile",
+        "linkedin",
+        "github"
+    ]
+
+    is_pdf_specific = any(
+        term in question.lower().split()
+        for term in pdf_specific_terms
+    )
+
+    # -------------------------------------------------
+    # IMPORTANT:
+    # General questions should NOT search resume
+    # -------------------------------------------------
+
+    if is_general_question and not is_pdf_specific:
+
+        return ""
+
+    # -------------------------------------------------
+    # Question phrase
+    # -------------------------------------------------
 
     question_phrase = " ".join(
         question_words
@@ -1180,20 +1246,80 @@ def find_relevant_text(
 
         score = 0
 
+        tokens = set(
+            re.findall(
+                r"\w+",
+                text
+            )
+        )
+
+        # ---------------------------------------------
         # Exact question
-        if question in text:
+        # ---------------------------------------------
 
-            score += 40
+        if question.lower() in text:
+            score += 50
 
+        # ---------------------------------------------
         # Exact phrase
+        # ---------------------------------------------
+
         if (
             question_phrase
             and question_phrase in text
         ):
+            score += 30
 
-            score += 25
+        # ---------------------------------------------
+        # Keyword scoring
+        # ---------------------------------------------
 
-        # Heading
+        matched_words = 0
+
+        for word in question_words:
+
+            if word in tokens:
+
+                matched_words += 1
+                score += 10
+
+        # ---------------------------------------------
+        # Similarity scoring
+        # Only for longer words
+        # ---------------------------------------------
+
+        for word in question_words:
+
+            if len(word) < 5:
+                continue
+
+            if word in tokens:
+                continue
+
+            for token in tokens:
+
+                if len(token) < 5:
+                    continue
+
+                if similarity(
+                    word,
+                    token
+                ) >= 0.92:
+
+                    score += 2
+                    break
+
+        # ---------------------------------------------
+        # Require meaningful keyword overlap
+        # ---------------------------------------------
+
+        if matched_words == 0:
+            continue
+
+        # ---------------------------------------------
+        # Heading bonus
+        # ---------------------------------------------
+
         first_line = (
             chunk
             .split("\n")[0]
@@ -1204,51 +1330,23 @@ def find_relevant_text(
             question_phrase
             and question_phrase in first_line
         ):
+            score += 20
 
-            score += 30
-
-        # Keyword scoring
-        for word in question_words:
-
-            if word in text:
-
-                score += 8
-
-            else:
-
-                # Only compare against unique
-                # tokens to reduce unnecessary work
-
-                tokens = set(
-                    re.findall(
-                        r"\w+",
-                        text
-                    )
-                )
-
-                for token in tokens:
-
-                    if (
-                        similarity(
-                            word,
-                            token
-                        ) >= 0.90
-                    ):
-
-                        score += 3
-
-                        break
-
+        # ---------------------------------------------
         # Definition bonus
-        if "definition" in text:
+        # ---------------------------------------------
 
+        if "definition" in text:
             score += 3
 
         if "defined as" in text:
-
             score += 3
 
-        if score >= 10:
+        # ---------------------------------------------
+        # Store only meaningful results
+        # ---------------------------------------------
+
+        if score >= 15:
 
             scored.append(
                 (
@@ -1258,15 +1356,14 @@ def find_relevant_text(
             )
 
     # -------------------------------------------------
-    # Nothing found
+    # Nothing relevant found
     # -------------------------------------------------
 
     if not scored:
-
         return ""
 
     # -------------------------------------------------
-    # Sort
+    # Sort by relevance
     # -------------------------------------------------
 
     scored.sort(
@@ -1275,11 +1372,10 @@ def find_relevant_text(
     )
 
     # -------------------------------------------------
-    # Return best chunks
+    # Return best unique chunks
     # -------------------------------------------------
 
     result = []
-
     used = set()
 
     for score, chunk in scored:
@@ -1287,19 +1383,12 @@ def find_relevant_text(
         if chunk in used:
             continue
 
-        used.add(
-            chunk
-        )
-
-        result.append(
-            chunk
-        )
+        used.add(chunk)
+        result.append(chunk)
 
         if len(result) >= 3:
-
             break
 
     return "\n\n".join(
         result
     )[:6000]
-    
